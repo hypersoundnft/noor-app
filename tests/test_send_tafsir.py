@@ -123,10 +123,21 @@ def test_send_to_telegram_calls_api():
     assert call_args[1]["json"]["parse_mode"] == "HTML"
 
 
-def test_send_to_telegram_raises_on_failure():
+def test_send_to_telegram_raises_on_http_error():
+    """HTTP-level error (4xx/5xx) raises via raise_for_status before reading JSON."""
+    import requests as req
     mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = req.exceptions.HTTPError("400 Bad Request")
+    with patch("send_tafsir.requests.post", return_value=mock_response):
+        with pytest.raises(req.exceptions.HTTPError):
+            send_to_telegram("Hello", "BOT_TOKEN", "CHANNEL_ID")
+
+
+def test_send_to_telegram_raises_on_ok_false():
+    """HTTP 200 but Telegram ok:false raises RuntimeError with description."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
     mock_response.json.return_value = {"ok": False, "description": "Bad Request"}
-    mock_response.status_code = 400
     with patch("send_tafsir.requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="Telegram API error"):
             send_to_telegram("Hello", "BOT_TOKEN", "CHANNEL_ID")
