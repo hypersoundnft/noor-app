@@ -24,6 +24,13 @@ def test_last_verse_of_quran():
     assert surah == 114
     assert ayah == 6
 
-def test_wraps_at_6236():
+def test_index_zero_returns_first_verse():
     surah, ayah = verse_index_to_surah_ayah(0)
     assert surah == 1 and ayah == 1
+
+def test_out_of_range_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        verse_index_to_surah_ayah(6236)
+    with pytest.raises(ValueError):
+        verse_index_to_surah_ayah(-1)

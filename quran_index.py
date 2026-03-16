@@ -23,12 +23,14 @@ for count in AYAH_COUNTS:
     _cumulative += count
 
 
-def verse_index_to_surah_ayah(verse_index: int) -> tuple:
+def verse_index_to_surah_ayah(verse_index: int) -> tuple[int, int]:
     """Map a 0-based verse index (0–6235) to (surah_number, ayah_number).
 
     Both surah_number and ayah_number are 1-based.
     verse_index must be in range [0, TOTAL_AYAHS - 1].
     """
+    if not (0 <= verse_index <= TOTAL_AYAHS - 1):
+        raise ValueError(f"verse_index must be in [0, {TOTAL_AYAHS - 1}], got {verse_index}")
     # Binary search for the surah
     lo, hi = 0, len(_OFFSETS) - 1
     while lo < hi:
