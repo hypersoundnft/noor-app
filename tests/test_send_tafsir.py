@@ -43,6 +43,12 @@ def test_get_verse_for_slot_wraps():
     assert surah == 1
     assert ayah == 1
 
+def test_get_verse_for_slot_before_start_date_raises():
+    from datetime import timedelta
+    before = START_DATE - timedelta(days=1)
+    with pytest.raises(ValueError, match="before START_DATE"):
+        get_verse_for_slot(before, 0)
+
 
 # ── fetch_verse_data ──────────────────────────────────────────────────────────
 

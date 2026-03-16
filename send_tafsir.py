@@ -18,6 +18,8 @@ API_BASE = "https://quran-api-id.vercel.app"
 
 def get_verse_for_slot(today: date, slot: int) -> tuple[int, int]:
     """Return (surah_number, ayah_number) for a given date and prayer slot (0–4)."""
+    if today < START_DATE:
+        raise ValueError(f"today ({today}) is before START_DATE ({START_DATE})")
     days_elapsed = (today - START_DATE).days
     verse_index = (days_elapsed * 5 + slot) % TOTAL_AYAHS
     return verse_index_to_surah_ayah(verse_index)
@@ -78,6 +80,7 @@ def send_to_telegram(text: str, bot_token: str, channel_id: str) -> None:
         "parse_mode": "HTML",
     }
     response = requests.post(url, json=payload, timeout=10)
+    response.raise_for_status()
     result = response.json()
     if not result.get("ok"):
         raise RuntimeError(f"Telegram API error: {result.get('description', 'unknown')}")
