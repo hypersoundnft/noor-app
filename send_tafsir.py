@@ -9,7 +9,7 @@ import requests
 
 from quran_index import TOTAL_AYAHS, verse_index_to_surah_ayah
 
-START_DATE = date(2026, 3, 17)  # slot 0 = Al-Fatiha 1:1
+START_DATE = date(2026, 3, 16)  # slot 0 = Al-Fatiha 1:1
 
 PRAYER_NAMES = ["Subuh", "Dzuhur", "Ashar", "Maghrib", "Isya"]
 
