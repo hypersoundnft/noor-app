@@ -2,17 +2,19 @@ name: Tafsir Subuh
 
 on:
   schedule:
-    - cron: "0 23 * * *"  # 06:00 WIB (UTC+7) — fires at UTC 23:00 previous day
+    - cron: "0 23 * * *"  # 06:00 WIB next morning (UTC 23:00 = WIB +7h, so WIB date is UTC date +1)
   workflow_dispatch:
 
 jobs:
   send:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
       - run: pip install -r requirements.txt
       - env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
