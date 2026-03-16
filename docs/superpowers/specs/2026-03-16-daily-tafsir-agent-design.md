@@ -39,10 +39,16 @@ Telegram Bot API  →  Channel broadcast (read-only for subscribers)
 The Quran has 6,236 total ayahs. Verse selection is deterministic — no state file or database needed.
 
 ```python
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 START_DATE   = date(2026, 3, 17)   # Slot 0 = Al-Fatiha 1:1
-days_elapsed = (today - START_DATE).days
+today_wib    = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+days_elapsed = (today_wib - START_DATE).days
 verse_index  = (days_elapsed * 5 + slot) % 6236
 ```
+
+> **Important:** Always use WIB (Asia/Jakarta, UTC+7) for the date — not UTC. The Subuh cron fires at 23:00 UTC (the previous UTC calendar day), so using `date.today()` (UTC) would calculate the wrong verse for Subuh.
 
 `verse_index` is mapped to `(surah_number, ayah_number)` via a hardcoded lookup table of cumulative ayah offsets per surah. This mapping is precomputed and stored in `quran_index.py`.
 
