@@ -91,6 +91,7 @@ def test_format_message_contains_required_parts():
         "ayah_number": 1,
     }
     msg = format_message(verse, slot=0)
+    assert "🕌 <b>Tadabbur Al-Quran Harian</b>" in msg
     assert "<b>Surah Al-Fatihah (1) : Ayat 1</b>" in msg
     assert "بِسْمِ اللَّهِ" in msg
     assert "<b>Terjemahan:</b>" in msg
