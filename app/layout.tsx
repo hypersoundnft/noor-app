@@ -9,6 +9,7 @@ const font = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://noor.app'),
   title: 'Noor — Islamic Companion Apps',
   description:
     'Noor builds modern Islamic companion apps. Start your daily Quran journey with the Tafsir Bot.',
