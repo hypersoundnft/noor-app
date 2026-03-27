@@ -1,9 +1,83 @@
 'use client';
 
-import { useState } from 'react';
-import { Camera, Languages, ShieldCheck, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Camera, Languages, ShieldCheck, ChevronRight, Trash2 } from 'lucide-react';
 import Scanner from './Scanner';
 import ResultsAnalyzer from './ResultsAnalyzer';
+import { analyzeIngredients, type HalalStatus } from '@/lib/analyzer';
+
+const HISTORY_KEY = 'hl_history';
+
+type HistoryEntry = {
+  id: string;
+  text: string;
+  imageUrl: string;
+  status: HalalStatus;
+  scannedAt: number; // timestamp
+};
+
+function saveToHistory(text: string, imageUrl: string) {
+  const status = analyzeIngredients(text).status;
+  const entry: HistoryEntry = { id: Date.now().toString(), text, imageUrl, status, scannedAt: Date.now() };
+  try {
+    const prev: HistoryEntry[] = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([entry, ...prev].slice(0, 50)));
+  } catch { /* ignore */ }
+}
+
+function loadHistory(): HistoryEntry[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]'); } catch { return []; }
+}
+
+const STATUS_COLOR: Record<HalalStatus, string> = {
+  Permissible: '#10B981',
+  Doubtful: '#F59E0B',
+  Avoid: '#EF4444',
+  Unknown: '#94A3B8',
+};
+
+function HistoryTab({ onOpen }: { onOpen: (entry: HistoryEntry) => void }) {
+  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+
+  useEffect(() => { setEntries(loadHistory()); }, []);
+
+  const remove = (id: string) => {
+    const updated = entries.filter((e) => e.id !== id);
+    setEntries(updated);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+  };
+
+  if (entries.length === 0) {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: '#94A3B8', padding: '40px 20px' }}>
+        <span style={{ fontSize: '40px' }}>🕐</span>
+        <p style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>No scans yet</p>
+        <p style={{ margin: 0, fontSize: '13px', textAlign: 'center', lineHeight: 1.6 }}>Your scan history will appear here after you scan a food label.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '24px' }}>
+      <p style={{ margin: '0 0 4px', fontSize: '13px', color: '#94A3B8' }}>{entries.length} scan{entries.length !== 1 ? 's' : ''}</p>
+      {entries.map((e) => (
+        <div key={e.id} style={{ background: 'white', borderRadius: '14px', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', cursor: 'pointer' }}
+          onClick={() => onOpen(e)}>
+          <img src={e.imageUrl} alt="scan" style={{ width: '52px', height: '52px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: STATUS_COLOR[e.status], marginBottom: '2px' }}>{e.status}</div>
+            <div style={{ fontSize: '12px', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.text.slice(0, 60)}…</div>
+            <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px' }}>{new Date(e.scannedAt).toLocaleString()}</div>
+          </div>
+          <button onClick={(ev) => { ev.stopPropagation(); remove(e.id); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#CBD5E1', padding: '4px', flexShrink: 0 }}>
+            <Trash2 size={16} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const card: React.CSSProperties = {
   background: 'white',
@@ -116,11 +190,18 @@ function InfoSection() {
 }
 
 type ScanResult = { text: string; imageUrl: string };
+type Tab = 'scan' | 'history';
 
 export default function HalalLensApp() {
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [tab, setTab] = useState<Tab>('scan');
 
   const reset = () => setResult(null);
+
+  const handleResult = (text: string, imageUrl: string) => {
+    saveToHistory(text, imageUrl);
+    setResult({ text, imageUrl });
+  };
 
   return (
     <>
@@ -178,11 +259,13 @@ export default function HalalLensApp() {
                 imageUrl={result.imageUrl}
                 onReset={reset}
               />
-            ) : (
+            ) : tab === 'scan' ? (
               <>
-                <Scanner onResult={(text, imageUrl) => setResult({ text, imageUrl })} />
+                <Scanner onResult={handleResult} />
                 <InfoSection />
               </>
+            ) : (
+              <HistoryTab onOpen={(e) => setResult({ text: e.text, imageUrl: e.imageUrl })} />
             )}
           </main>
 
@@ -197,20 +280,24 @@ export default function HalalLensApp() {
               padding: '10px 0 16px',
             }}>
               {[
-                { label: 'Scan', active: true, icon: '⊙' },
-                { label: 'History', active: false, icon: '⊡' },
-                { label: 'Search', active: false, icon: '◎' },
-                { label: 'Profile', active: false, icon: '⊛' },
-              ].map((item) => (
-                <div key={item.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: item.active ? '#ECFDF5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: item.active ? '#10B981' : '#94A3B8' }}>
-                    {item.icon}
+                { id: 'scan', label: 'Scan', icon: '⊙' },
+                { id: 'history', label: 'History', icon: '⊡' },
+                { id: 'search', label: 'Search', icon: '◎' },
+                { id: 'profile', label: 'Profile', icon: '⊛' },
+              ].map((item) => {
+                const active = item.id === tab;
+                return (
+                  <div key={item.label} onClick={() => item.id === 'scan' || item.id === 'history' ? setTab(item.id as Tab) : undefined}
+                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: item.id === 'scan' || item.id === 'history' ? 'pointer' : 'default' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: active ? '#ECFDF5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: active ? '#10B981' : '#94A3B8' }}>
+                      {item.icon}
+                    </div>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: active ? '#10B981' : '#94A3B8' }}>
+                      {item.label}
+                    </span>
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: item.active ? '#10B981' : '#94A3B8' }}>
-                    {item.label}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </nav>
           )}
         </div>
