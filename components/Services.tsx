@@ -5,6 +5,7 @@ type Service = {
   status: 'live' | 'soon';
   link?: string;
   linkText?: string;
+  external?: boolean;
 };
 
 const services: Service[] = [
@@ -16,13 +17,16 @@ const services: Service[] = [
     status: 'live',
     link: 'https://t.me/islam_agent_bot',
     linkText: 'Start on Telegram →',
+    external: true,
   },
   {
     icon: '🔍',
-    title: 'Halal Scanner',
+    title: 'Halal Lens',
     description:
-      'Instantly check if any ingredient or E-number is halal. Scan product barcodes or search manually.',
-    status: 'soon',
+      'Scan a food label to instantly check every E-number and ingredient for its halal status.',
+    status: 'live',
+    link: '/halal-lens',
+    linkText: 'Try Halal Lens →',
   },
   {
     icon: '🕌',
@@ -76,8 +80,7 @@ export default function Services() {
                 <>
                   <a
                     href={s.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    {...(s.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                     className="block text-sm font-semibold text-noor-mint hover:text-emerald-600 transition-colors mb-4"
                   >
                     {s.linkText}

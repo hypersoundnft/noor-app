@@ -1,0 +1,16 @@
+{
+  "E100": { "name": "Curcumin", "status": "Permissible", "description": "Natural orange-yellow color extracted from turmeric root." },
+  "E120": { "name": "Carmine / Cochineal", "status": "Avoid", "description": "Red dye derived from crushed insects." },
+  "E150": { "name": "Caramel", "status": "Permissible", "description": "Burnt sugar. Completely permissible." },
+  "E171": { "name": "Titanium Dioxide", "status": "Permissible", "description": "A naturally occurring mineral used as a white pigment." },
+  "E202": { "name": "Potassium Sorbate", "status": "Permissible", "description": "Synthetic preservative." },
+  "E211": { "name": "Sodium Benzoate", "status": "Permissible", "description": "Synthetic preservative." },
+  "E300": { "name": "Ascorbic Acid (Vitamin C)", "status": "Permissible", "description": "Generally produced from glucose, no animal involvement." },
+  "E322": { "name": "Lecithin", "status": "Permissible", "description": "Usually sourced from soy. Halal unless derived from animal fat (rare)." },
+  "E330": { "name": "Citric Acid", "status": "Permissible", "description": "Naturally occurring weak organic acid. Mostly produced by fungal fermentation." },
+  "E422": { "name": "Glycerol / Glycerin", "status": "Doubtful", "description": "Can be derived from animal fat or plant oil. Requires investigation." },
+  "E441": { "name": "Gelatin", "status": "Avoid", "description": "Typically sourced from pig or non-zabiha cattle. Avoid unless explicitly stated as Halal/bovine." },
+  "E471": { "name": "Mono- and diglycerides of fatty acids", "status": "Doubtful", "description": "Often derived from animal fat, but plant-based versions exist." },
+  "E621": { "name": "Monosodium Glutamate (MSG)", "status": "Permissible", "description": "Flavor enhancer derived from fermentation. Permissible." },
+  "E904": { "name": "Shellac", "status": "Doubtful", "description": "Resin secreted by the lac bug. Some scholars permit it, others advise avoiding." }
+}
