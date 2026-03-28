@@ -211,3 +211,49 @@ def test_publish_ig_media_container_raises_without_id():
     with patch("instagram_agent.http_requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="IG publish failed"):
             publish_ig_media_container("12345", "container123", "BAD_TOKEN")
+
+
+# ── Integration: main() ───────────────────────────────────────────────────────
+from instagram_agent import main
+
+
+def test_main_completes_full_pipeline(monkeypatch):
+    """main() runs all five stages end-to-end with all external calls mocked.
+
+    This exercises the wiring: content → image → upload → container → publish.
+    No logo file exists at the test path, so the overlay stage is skipped.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai")
+    monkeypatch.setenv("IMGBB_API_KEY", "test-imgbb")
+    monkeypatch.setenv("IG_USER_ID", "12345")
+    monkeypatch.setenv("IG_ACCESS_TOKEN", "test-token")
+
+    fake_png = _make_png()  # reuse helper from logo tests
+
+    mock_imgbb = MagicMock()
+    mock_imgbb.json.return_value = {"success": True, "data": {"url": "https://i.ibb.co/test.jpg"}}
+    mock_ig_container = MagicMock()
+    mock_ig_container.json.return_value = {"id": "container123"}
+    mock_ig_publish = MagicMock()
+    mock_ig_publish.json.return_value = {"id": "media456"}
+
+    with patch("instagram_agent.anthropic.Anthropic") as mock_anthropic_cls, \
+         patch("instagram_agent.openai.OpenAI") as mock_openai_cls, \
+         patch("instagram_agent.http_requests.get") as mock_get, \
+         patch("instagram_agent.http_requests.post") as mock_post:
+
+        mock_anthropic_cls.return_value.messages.create.return_value = MagicMock(
+            content=[MagicMock(text=json.dumps({
+                "image_prompt": "soft mosque dawn light",
+                "caption": "Start your day with Bismillah. #Noor",
+                "topic": "fitrah",
+            }))]
+        )
+        mock_openai_cls.return_value.images.generate.return_value = MagicMock(
+            data=[MagicMock(url="https://dalle.openai.com/fake.png")]
+        )
+        mock_get.return_value = MagicMock(content=fake_png)
+        mock_post.side_effect = [mock_imgbb, mock_ig_container, mock_ig_publish]
+
+        main()  # should complete without raising

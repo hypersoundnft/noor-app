@@ -167,3 +167,52 @@ def publish_ig_media_container(ig_user_id: str, container_id: str, access_token:
     if "id" not in data:
         raise RuntimeError(f"IG publish failed: {data}")
     return data["id"]
+
+
+# ── Pipeline ──────────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    """Run the full Noor Instagram post pipeline.
+
+    Reads five environment variables:
+      ANTHROPIC_API_KEY, OPENAI_API_KEY, IMGBB_API_KEY,
+      IG_USER_ID, IG_ACCESS_TOKEN
+    """
+    today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+
+    claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    openai_client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    imgbb_key = os.environ["IMGBB_API_KEY"]
+    ig_user_id = os.environ["IG_USER_ID"]
+    ig_access_token = os.environ["IG_ACCESS_TOKEN"]
+    logo_path = Path(__file__).parent / "public" / "noor_logo_white.png"
+
+    print(f"[1/5] Generating content for {today_wib}...")
+    content = generate_content(today_wib, claude_client)
+    print(f"      Topic: {content['topic']}")
+    print(f"      Caption preview: {content['caption'][:60]}...")
+
+    print("[2/5] Generating image with DALL-E 3...")
+    image_bytes = generate_image(content["image_prompt"], openai_client)
+    print(f"      Image: {len(image_bytes):,} bytes")
+
+    print("[3/5] Overlaying Noor logo...")
+    if logo_path.exists():
+        image_bytes = overlay_logo(image_bytes, logo_path)
+        print("      Logo composited.")
+    else:
+        print(f"      Warning: no logo at {logo_path} — skipping overlay")
+
+    print("[4/5] Uploading image to imgbb...")
+    image_url = upload_to_imgbb(image_bytes, imgbb_key)
+    print(f"      Public URL: {image_url}")
+
+    print("[5/5] Posting to Instagram...")
+    container_id = create_ig_media_container(ig_user_id, image_url, content["caption"], ig_access_token)
+    media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
+    print(f"      Done! Media ID: {media_id}")
+
+
+if __name__ == "__main__":
+    main()
