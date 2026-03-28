@@ -2,7 +2,6 @@
 
 import base64
 import io
-import json
 import os
 from datetime import date, datetime
 from pathlib import Path
@@ -36,29 +35,36 @@ def get_topic_for_date(today: date) -> str:
     return TOPIC_ROTATION[today.timetuple().tm_yday % 3]
 
 
+_POST_TOOL = {
+    "name": "create_post",
+    "description": "Create a Noor Instagram post",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "image_prompt": {"type": "string", "description": "Detailed DALL-E/Imagen prompt"},
+            "caption": {"type": "string", "description": "Instagram caption with hashtags"},
+            "topic": {"type": "string", "description": "The topic key used"},
+        },
+        "required": ["image_prompt", "caption", "topic"],
+    },
+}
+
+
 def generate_content(today: date, client: anthropic.Anthropic) -> dict:
-    """Call Claude to generate image_prompt and caption.
+    """Call Claude to generate image_prompt and caption using tool use for reliable structured output.
 
     Returns dict with keys: image_prompt, caption, topic.
-    Raises json.JSONDecodeError if the model response is not valid JSON.
     """
     topic = get_topic_for_date(today)
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2048,
         system=SYSTEM_PROMPT,
+        tools=[_POST_TOOL],
+        tool_choice={"type": "tool", "name": "create_post"},
         messages=[{"role": "user", "content": f"Generate a Noor Instagram post for topic: {topic}"}],
     )
-    # Find the first text block (skip thinking blocks if present)
-    raw = next(block.text for block in message.content if block.type == "text")
-    # Strip markdown code fences if model wrapped the JSON
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    return json.loads(raw)
+    return message.content[0].input
 
 
 # ── Image Generation ──────────────────────────────────────────────────────────
