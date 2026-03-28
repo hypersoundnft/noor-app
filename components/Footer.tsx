@@ -1,20 +1,38 @@
-export default function Footer() {
+import { Footer } from "@/components/ui/footer";
+import { Send } from "lucide-react";
+
+const NoorLogo = () => (
+  <span className="text-xl font-bold tracking-tight text-[#1E293B]">
+    noor<span className="text-[#10B981]">.</span>
+  </span>
+);
+
+export default function SiteFooter() {
   return (
-    <footer className="border-t border-slate-200 px-6 md:px-12 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div className="text-lg font-bold tracking-tight text-noor-slate">
-        noor<span className="text-noor-mint">.</span>
-      </div>
-      <p className="text-sm text-noor-muted text-center">
-        © 2026 Noor. Illuminating the permissible.
-      </p>
-      <a
-        href="https://t.me/islam_agent_bot"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-sm text-noor-muted hover:text-noor-slate transition-colors"
-      >
-        Telegram →
-      </a>
-    </footer>
+    <Footer
+      logo={<NoorLogo />}
+      brandName=""
+      socialLinks={[
+        {
+          icon: <Send className="h-5 w-5" />,
+          href: "https://t.me/islam_agent_bot",
+          label: "Telegram",
+        },
+      ]}
+      mainLinks={[
+        { href: "#about", label: "About" },
+        { href: "#services", label: "Services" },
+        { href: "/halal-lens", label: "Halal Lens" },
+        { href: "https://t.me/islam_agent_bot", label: "Telegram Bot" },
+      ]}
+      legalLinks={[
+        { href: "#", label: "Privacy Policy" },
+        { href: "#", label: "Terms of Use" },
+      ]}
+      copyright={{
+        text: "© 2026 Noor.",
+        license: "Illuminating the permissible.",
+      }}
+    />
   );
 }
