@@ -1,23 +1,20 @@
 'use client';
 
-import { cn } from "@/lib/utils";
-import { useState } from "react";
+import React from "react";
 
-export const Component = () => {
-  const [count, setCount] = useState(0);
-
+export const Component = ({ children }: { children?: React.ReactNode }) => {
   return (
     <div className="min-h-screen w-full relative bg-white">
-      {/* Soft Yellow Glow */}
+      {/* Noor mint green glow */}
       <div
-        className="absolute inset-0 z-0"
+        className="absolute inset-0 z-0 pointer-events-none"
         style={{
-          backgroundImage: `radial-gradient(circle at center, #FFF991 0%, transparent 70%)`,
-          opacity: 0.6,
-          mixBlendMode: "multiply",
+          backgroundImage: `radial-gradient(circle at center, #10B981 0%, transparent 70%)`,
+          opacity: 0.15,
+          mixBlendMode: "normal",
         }}
       />
-      {/* Your Content/Components */}
+      <div className="relative z-10">{children}</div>
     </div>
   );
 };
