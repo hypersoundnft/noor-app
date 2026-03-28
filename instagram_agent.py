@@ -49,3 +49,21 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
         messages=[{"role": "user", "content": f"Generate a Noor Instagram post for topic: {topic}"}],
     )
     return json.loads(message.content[0].text)
+
+
+# ── Image Generation ──────────────────────────────────────────────────────────
+
+
+def generate_image(image_prompt: str, client: openai.OpenAI) -> bytes:
+    """Call DALL-E 3 with the given prompt. Downloads and returns raw image bytes."""
+    response = client.images.generate(
+        model="dall-e-3",
+        prompt=image_prompt,
+        size="1024x1024",
+        quality="standard",
+        n=1,
+    )
+    image_url = response.data[0].url
+    r = http_requests.get(image_url, timeout=30)
+    r.raise_for_status()
+    return r.content

@@ -41,3 +41,46 @@ def test_generate_content_raises_on_invalid_json():
     )
     with pytest.raises(json.JSONDecodeError):
         generate_content(date(2026, 3, 27), mock_client)
+
+
+# ── Image Generation ──────────────────────────────────────────────────────────
+from unittest.mock import patch
+from instagram_agent import generate_image
+
+
+def test_generate_image_downloads_dall_e_url_and_returns_bytes():
+    """generate_image calls DALL-E 3, downloads the returned URL, returns raw bytes."""
+    fake_bytes = b"\x89PNG\r\nFAKE"
+    mock_openai = MagicMock()
+    mock_openai.images.generate.return_value = MagicMock(
+        data=[MagicMock(url="https://dalle.openai.com/fake-image.png")]
+    )
+    mock_http_response = MagicMock()
+    mock_http_response.content = fake_bytes
+
+    with patch("instagram_agent.http_requests.get", return_value=mock_http_response):
+        result = generate_image("minimalist mosque at dawn", mock_openai)
+
+    assert result == fake_bytes
+    mock_openai.images.generate.assert_called_once_with(
+        model="dall-e-3",
+        prompt="minimalist mosque at dawn",
+        size="1024x1024",
+        quality="standard",
+        n=1,
+    )
+
+
+def test_generate_image_raises_on_download_failure():
+    """generate_image raises if the image download returns an HTTP error."""
+    import requests as req
+    mock_openai = MagicMock()
+    mock_openai.images.generate.return_value = MagicMock(
+        data=[MagicMock(url="https://dalle.openai.com/fake-image.png")]
+    )
+    mock_http_response = MagicMock()
+    mock_http_response.raise_for_status.side_effect = req.exceptions.HTTPError("503")
+
+    with patch("instagram_agent.http_requests.get", return_value=mock_http_response):
+        with pytest.raises(req.exceptions.HTTPError):
+            generate_image("minimalist mosque", mock_openai)
