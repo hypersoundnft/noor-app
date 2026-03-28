@@ -71,23 +71,13 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
 
 
 def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
-    """Call Gemini image generation and return raw image bytes."""
-    # List available models to find image generation support
-    for m in client.models.list():
-        if "image" in m.name.lower() or "imagen" in m.name.lower():
-            print(f"      Found image model: {m.name}")
-
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-exp",
-        contents=image_prompt,
-        config=google_types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"]
-        ),
+    """Call Imagen 4 via Google AI Studio and return raw image bytes."""
+    response = client.models.generate_images(
+        model="imagen-4.0-generate-001",
+        prompt=image_prompt,
+        config=google_types.GenerateImagesConfig(number_of_images=1),
     )
-    for part in response.candidates[0].content.parts:
-        if part.inline_data is not None:
-            return part.inline_data.data
-    raise RuntimeError("Gemini returned no image in response")
+    return response.generated_images[0].image.image_bytes
 
 
 # ── Logo Overlay ──────────────────────────────────────────────────────────────
