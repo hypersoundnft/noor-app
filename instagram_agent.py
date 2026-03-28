@@ -48,7 +48,16 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": f"Generate a Noor Instagram post for topic: {topic}"}],
     )
-    return json.loads(message.content[0].text)
+    # Find the first text block (skip thinking blocks if present)
+    raw = next(block.text for block in message.content if block.type == "text")
+    # Strip markdown code fences if model wrapped the JSON
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    return json.loads(raw)
 
 
 # ── Image Generation ──────────────────────────────────────────────────────────
