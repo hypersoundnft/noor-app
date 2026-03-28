@@ -92,8 +92,8 @@ const Gallery4 = ({
                       alt={item.title}
                       className="absolute h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
                     />
-                    {/* Noor mint green gradient overlay */}
-                    <div className="absolute inset-0 h-full bg-gradient-to-b from-transparent via-[#10B981]/20 to-[#0a7a53]/90 mix-blend-multiply" />
+                    {/* Dark overlay: transparent top → black bottom */}
+                    <div className="absolute inset-0 h-full bg-gradient-to-t from-black/90 via-black/50 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 flex flex-col items-start p-6 text-white md:p-8">
                       {item.badge && (
                         <span className={`mb-3 inline-block text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide ${item.badgeColor ?? 'bg-[#10B981]/30 text-white'}`}>
