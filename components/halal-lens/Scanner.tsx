@@ -12,6 +12,7 @@ export default function Scanner({ onResult }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleCapture = () => fileInputRef.current?.click();
 
@@ -22,13 +23,18 @@ export default function Scanner({ onResult }: Props) {
     const url = URL.createObjectURL(file);
     setPreview(url);
     setIsScanning(true);
+    setErrorMsg(null);
 
     try {
       const text = await processImageWithOCR(file);
       onResult(text, url);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Scan failed: ${msg}`);
+      const raw = err instanceof Error ? err.message : String(err);
+      // Show a friendly message — hide API internals from the user
+      const friendly = raw.startsWith('{') || raw.includes('"code"')
+        ? 'Scan failed — please try again.'
+        : raw;
+      setErrorMsg(friendly);
       setPreview(null);
       setIsScanning(false);
     }
@@ -106,6 +112,13 @@ export default function Scanner({ onResult }: Props) {
           </div>
         )}
       </div>
+
+      {/* Error message */}
+      {errorMsg && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '10px 16px', color: '#991B1B', fontSize: '13px', textAlign: 'center', maxWidth: '260px' }}>
+          {errorMsg}
+        </div>
+      )}
 
       {/* Instruction text */}
       <p style={{ margin: 0, color: '#64748B', fontSize: '14px', textAlign: 'center', maxWidth: '220px', lineHeight: 1.6 }}>

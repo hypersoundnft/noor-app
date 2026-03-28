@@ -29,10 +29,10 @@ export default function Hero() {
           ✦ Start your Quran journey
         </a>
         <a
-          href="#services"
-          className="text-noor-muted text-base font-semibold hover:text-noor-slate transition-colors"
+          href="/halal-lens"
+          className="inline-flex items-center gap-2 border border-noor-mint text-noor-mint px-6 py-3.5 rounded-xl text-base font-semibold hover:bg-emerald-50 transition-colors"
         >
-          See all services ↓
+          🔍 Try Halal Lens →
         </a>
       </div>
     </section>

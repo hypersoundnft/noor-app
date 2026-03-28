@@ -11,7 +11,25 @@ Your task:
 4. If the label has multiple languages, include all of them.
 5. If you cannot find a clear ingredient list, return whatever text is readable on the label.`;
 
+// Allow requests only from the Noor site itself (blocks cross-origin abuse)
+function isAllowedOrigin(request: NextRequest): boolean {
+  const origin = request.headers.get('origin') ?? '';
+  const referer = request.headers.get('referer') ?? '';
+  const allowed = [
+    'https://noor-website-ten.vercel.app',
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
+    'http://localhost:3000',
+    'http://localhost:3001',
+  ].filter(Boolean);
+  if (!origin && !referer) return true; // server-side / no-cors same-origin
+  return allowed.some((o) => origin.startsWith(o) || referer.startsWith(o));
+}
+
 export async function POST(request: NextRequest) {
+  if (!isAllowedOrigin(request)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: 'GEMINI_API_KEY is not configured.' }, { status: 500 });
@@ -47,8 +65,13 @@ export async function POST(request: NextRequest) {
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
-      console.error('Gemini error:', err);
-      return NextResponse.json({ error: err }, { status: geminiRes.status });
+      console.error('Gemini error:', geminiRes.status, err);
+      // Return a user-friendly message, not raw API internals
+      const friendly =
+        geminiRes.status === 429 ? 'Too many requests — please wait a moment and try again.' :
+        geminiRes.status === 404 ? 'OCR service unavailable. Please try again later.' :
+        'OCR service error. Please try again.';
+      return NextResponse.json({ error: friendly }, { status: geminiRes.status });
     }
 
     const data = await geminiRes.json();

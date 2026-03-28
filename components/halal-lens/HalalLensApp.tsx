@@ -282,13 +282,11 @@ export default function HalalLensApp() {
               {[
                 { id: 'scan', label: 'Scan', icon: '⊙' },
                 { id: 'history', label: 'History', icon: '⊡' },
-                { id: 'search', label: 'Search', icon: '◎' },
-                { id: 'profile', label: 'Profile', icon: '⊛' },
               ].map((item) => {
                 const active = item.id === tab;
                 return (
-                  <div key={item.label} onClick={() => item.id === 'scan' || item.id === 'history' ? setTab(item.id as Tab) : undefined}
-                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: item.id === 'scan' || item.id === 'history' ? 'pointer' : 'default' }}>
+                  <div key={item.label} onClick={() => setTab(item.id as Tab)}
+                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: active ? '#ECFDF5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: active ? '#10B981' : '#94A3B8' }}>
                       {item.icon}
                     </div>
