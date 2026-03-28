@@ -67,7 +67,7 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
 def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
     """Call Imagen 3 via Google AI Studio and return raw image bytes."""
     response = client.models.generate_images(
-        model="imagen-3.0-generate-001",
+        model="imagen-3.0-generate-002",
         prompt=image_prompt,
         config=google_types.GenerateImagesConfig(number_of_images=1),
     )
