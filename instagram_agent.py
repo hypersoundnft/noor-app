@@ -97,3 +97,73 @@ def overlay_logo(image_bytes: bytes, logo_path: Path) -> bytes:
     out = io.BytesIO()
     composite.convert("RGB").save(out, format="JPEG", quality=95)
     return out.getvalue()
+
+
+# ── Instagram Posting ─────────────────────────────────────────────────────────
+
+IG_API_BASE = "https://graph.facebook.com/v22.0"
+
+
+def upload_to_imgbb(image_bytes: bytes, api_key: str) -> str:
+    """Upload image bytes to imgbb.com and return the public HTTPS URL.
+
+    imgbb free tier: 32 MB max, permanent storage.
+    Raises RuntimeError if the API reports failure.
+    """
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    response = http_requests.post(
+        "https://api.imgbb.com/1/upload",
+        data={"key": api_key, "image": b64},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not data.get("success"):
+        raise RuntimeError(f"imgbb upload failed: {data}")
+    return data["data"]["url"]
+
+
+def create_ig_media_container(
+    ig_user_id: str, image_url: str, caption: str, access_token: str
+) -> str:
+    """Step 1 of 2: Create an IG media container for a feed image post.
+
+    image_url must be a publicly accessible HTTPS URL.
+    Returns container_id (pass to publish_ig_media_container).
+    Raises RuntimeError if the API response lacks an 'id'.
+    """
+    response = http_requests.post(
+        f"{IG_API_BASE}/{ig_user_id}/media",
+        params={
+            "image_url": image_url,
+            "caption": caption,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if "id" not in data:
+        raise RuntimeError(f"IG container creation failed: {data}")
+    return data["id"]
+
+
+def publish_ig_media_container(ig_user_id: str, container_id: str, access_token: str) -> str:
+    """Step 2 of 2: Publish an IG media container to the feed.
+
+    Returns the media_id of the published post.
+    Raises RuntimeError if the API response lacks an 'id'.
+    """
+    response = http_requests.post(
+        f"{IG_API_BASE}/{ig_user_id}/media_publish",
+        params={
+            "creation_id": container_id,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if "id" not in data:
+        raise RuntimeError(f"IG publish failed: {data}")
+    return data["id"]

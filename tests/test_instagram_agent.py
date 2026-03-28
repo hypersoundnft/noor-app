@@ -137,3 +137,77 @@ def test_overlay_logo_scales_wide_logo_to_max_width():
     result = overlay_logo(image_bytes, logo_path)
     out_img = PILImage.open(_io.BytesIO(result))
     assert out_img.size == (1024, 1024)
+
+
+# ── Instagram Posting ─────────────────────────────────────────────────────────
+from instagram_agent import (
+    upload_to_imgbb,
+    create_ig_media_container,
+    publish_ig_media_container,
+)
+
+
+def test_upload_to_imgbb_returns_public_url():
+    """upload_to_imgbb posts base64 image to imgbb and returns the public URL."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "success": True,
+        "data": {"url": "https://i.ibb.co/abc123/noor.jpg"},
+    }
+    with patch("instagram_agent.http_requests.post", return_value=mock_response):
+        url = upload_to_imgbb(b"FAKEJPEG", "test-api-key")
+    assert url == "https://i.ibb.co/abc123/noor.jpg"
+
+
+def test_upload_to_imgbb_raises_on_api_failure():
+    """upload_to_imgbb raises RuntimeError when imgbb returns success:false."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"success": False, "error": {"message": "Invalid key"}}
+    with patch("instagram_agent.http_requests.post", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="imgbb upload failed"):
+            upload_to_imgbb(b"FAKEJPEG", "bad-key")
+
+
+def test_create_ig_media_container_returns_container_id():
+    """create_ig_media_container posts to /media and returns the container id."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"id": "17889618863059855"}
+    with patch("instagram_agent.http_requests.post", return_value=mock_response):
+        cid = create_ig_media_container(
+            ig_user_id="12345",
+            image_url="https://i.ibb.co/abc123/noor.jpg",
+            caption="Bismillah. #Noor",
+            access_token="PAGE_TOKEN",
+        )
+    assert cid == "17889618863059855"
+
+
+def test_create_ig_media_container_raises_without_id():
+    """create_ig_media_container raises RuntimeError when API response lacks 'id'."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"error": {"message": "Invalid OAuth access token"}}
+    with patch("instagram_agent.http_requests.post", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="IG container creation failed"):
+            create_ig_media_container("12345", "https://i.ibb.co/x.jpg", "Cap", "BAD_TOKEN")
+
+
+def test_publish_ig_media_container_returns_media_id():
+    """publish_ig_media_container posts to /media_publish and returns the media id."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"id": "17896129349180111"}
+    with patch("instagram_agent.http_requests.post", return_value=mock_response):
+        media_id = publish_ig_media_container(
+            ig_user_id="12345",
+            container_id="17889618863059855",
+            access_token="PAGE_TOKEN",
+        )
+    assert media_id == "17896129349180111"
+
+
+def test_publish_ig_media_container_raises_without_id():
+    """publish_ig_media_container raises RuntimeError when API response lacks 'id'."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"error": {"message": "Container not ready"}}
+    with patch("instagram_agent.http_requests.post", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="IG publish failed"):
+            publish_ig_media_container("12345", "container123", "BAD_TOKEN")
