@@ -67,3 +67,33 @@ def generate_image(image_prompt: str, client: openai.OpenAI) -> bytes:
     r = http_requests.get(image_url, timeout=30)
     r.raise_for_status()
     return r.content
+
+
+# ── Logo Overlay ──────────────────────────────────────────────────────────────
+
+LOGO_MARGIN = 30   # pixels from edge
+LOGO_MAX_WIDTH = 180  # max logo width in pixels
+
+
+def overlay_logo(image_bytes: bytes, logo_path: Path) -> bytes:
+    """Composite the Noor logo into the bottom-right corner.
+
+    Scales the logo to at most LOGO_MAX_WIDTH wide, maintaining aspect ratio.
+    Returns JPEG bytes at 95% quality.
+    """
+    base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    logo = Image.open(logo_path).convert("RGBA")
+
+    ratio = LOGO_MAX_WIDTH / logo.width
+    new_size = (LOGO_MAX_WIDTH, max(1, int(logo.height * ratio)))
+    logo = logo.resize(new_size, Image.LANCZOS)
+
+    x = base.width - new_size[0] - LOGO_MARGIN
+    y = base.height - new_size[1] - LOGO_MARGIN
+
+    composite = base.copy()
+    composite.paste(logo, (x, y), logo)
+
+    out = io.BytesIO()
+    composite.convert("RGB").save(out, format="JPEG", quality=95)
+    return out.getvalue()

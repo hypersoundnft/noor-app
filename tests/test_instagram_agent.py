@@ -84,3 +84,56 @@ def test_generate_image_raises_on_download_failure():
     with patch("instagram_agent.http_requests.get", return_value=mock_http_response):
         with pytest.raises(req.exceptions.HTTPError):
             generate_image("minimalist mosque", mock_openai)
+
+
+# ── Logo Overlay ──────────────────────────────────────────────────────────────
+import io as _io
+import tempfile
+from pathlib import Path
+from PIL import Image as PILImage
+from instagram_agent import overlay_logo
+
+
+def _make_png(width=1024, height=1024, color=(180, 180, 180)) -> bytes:
+    """Create a minimal in-memory PNG for tests."""
+    img = PILImage.new("RGB", (width, height), color)
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _make_logo_png(width=400, height=100) -> Path:
+    """Write a minimal RGBA logo PNG to a temp file and return its Path."""
+    img = PILImage.new("RGBA", (width, height), (255, 255, 255, 200))
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    img.save(tmp.name, format="PNG")
+    return Path(tmp.name)
+
+
+def test_overlay_logo_returns_jpeg_bytes():
+    """overlay_logo composites the logo and returns JPEG bytes (FF D8 magic)."""
+    image_bytes = _make_png()
+    logo_path = _make_logo_png()
+    result = overlay_logo(image_bytes, logo_path)
+    assert result[:2] == b"\xff\xd8", "Expected JPEG output (FF D8 magic bytes)"
+
+
+def test_overlay_logo_preserves_input_dimensions():
+    """Output image is the same size as the input image."""
+    image_bytes = _make_png(1024, 1024)
+    logo_path = _make_logo_png()
+    result = overlay_logo(image_bytes, logo_path)
+    out_img = PILImage.open(_io.BytesIO(result))
+    assert out_img.size == (1024, 1024)
+
+
+def test_overlay_logo_scales_wide_logo_to_max_width():
+    """A logo wider than LOGO_MAX_WIDTH is scaled down."""
+    from instagram_agent import LOGO_MAX_WIDTH
+    image_bytes = _make_png()
+    # Logo wider than LOGO_MAX_WIDTH
+    logo_path = _make_logo_png(width=LOGO_MAX_WIDTH * 3, height=200)
+    # Should not raise; output image still valid
+    result = overlay_logo(image_bytes, logo_path)
+    out_img = PILImage.open(_io.BytesIO(result))
+    assert out_img.size == (1024, 1024)
