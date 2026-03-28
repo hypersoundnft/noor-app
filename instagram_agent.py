@@ -9,7 +9,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import anthropic
-import openai
+from google import genai as google_genai
+from google.genai import types as google_types
 import requests as http_requests
 from PIL import Image
 
@@ -63,19 +64,14 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
 # ── Image Generation ──────────────────────────────────────────────────────────
 
 
-def generate_image(image_prompt: str, client: openai.OpenAI) -> bytes:
-    """Call DALL-E 3 with the given prompt. Downloads and returns raw image bytes."""
-    response = client.images.generate(
-        model="dall-e-3",
+def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
+    """Call Imagen 3 via Google AI Studio and return raw image bytes."""
+    response = client.models.generate_images(
+        model="imagen-3.0-generate-001",
         prompt=image_prompt,
-        size="1024x1024",
-        quality="standard",
-        n=1,
+        config=google_types.GenerateImagesConfig(number_of_images=1),
     )
-    image_url = response.data[0].url
-    r = http_requests.get(image_url, timeout=30)
-    r.raise_for_status()
-    return r.content
+    return response.generated_images[0].image.image_bytes
 
 
 # ── Logo Overlay ──────────────────────────────────────────────────────────────
@@ -223,7 +219,7 @@ def main() -> None:
     today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
 
     claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    openai_client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    google_client = google_genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
     telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
     logo_path = Path(__file__).parent / "public" / "noor_logo_white.png"
@@ -233,8 +229,8 @@ def main() -> None:
     print(f"      Topic: {content['topic']}")
     print(f"      Caption preview: {content['caption'][:60]}...")
 
-    print("[2/4] Generating image with DALL-E 3...")
-    image_bytes = generate_image(content["image_prompt"], openai_client)
+    print("[2/4] Generating image with Imagen 3...")
+    image_bytes = generate_image(content["image_prompt"], google_client)
     print(f"      Image: {len(image_bytes):,} bytes")
 
     print("[3/4] Overlaying Noor logo...")
