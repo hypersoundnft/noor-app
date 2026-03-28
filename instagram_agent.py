@@ -43,7 +43,7 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
     """
     topic = get_topic_for_date(today)
     message = client.messages.create(
-        model="claude-opus-4-6",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": f"Generate a Noor Instagram post for topic: {topic}"}],
