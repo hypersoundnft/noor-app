@@ -71,9 +71,14 @@ def generate_content(today: date, client: anthropic.Anthropic) -> dict:
 
 
 def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
-    """Call Gemini 2.0 Flash image generation and return raw image bytes."""
+    """Call Gemini image generation and return raw image bytes."""
+    # List available models to find image generation support
+    for m in client.models.list():
+        if "image" in m.name.lower() or "imagen" in m.name.lower():
+            print(f"      Found image model: {m.name}")
+
     response = client.models.generate_content(
-        model="gemini-2.0-flash-preview-image-generation",
+        model="gemini-2.0-flash-exp",
         contents=image_prompt,
         config=google_types.GenerateContentConfig(
             response_modalities=["IMAGE", "TEXT"]
