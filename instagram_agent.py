@@ -105,6 +105,8 @@ def generate_video_clips(video_prompt: str, client: google_genai.Client, num_cli
         while not operation.done:
             time.sleep(10)
             operation = client.operations.get(operation)
+        if not operation.response.generated_videos:
+            raise RuntimeError(f"Veo 2 returned no videos for clip {len(clips) + 1}")
         clips.append(operation.response.generated_videos[0].video.video_bytes)
     return clips
 
