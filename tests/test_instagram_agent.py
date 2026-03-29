@@ -93,7 +93,6 @@ def test_concatenate_clips_produces_file(tmp_path):
 # ── Instagram Posting ─────────────────────────────────────────────────────────
 from instagram_agent import (
     upload_to_imgbb,
-    create_ig_media_container,
     publish_ig_media_container,
 )
 
@@ -119,29 +118,6 @@ def test_upload_to_imgbb_raises_on_api_failure():
             upload_to_imgbb(b"FAKEJPEG", "bad-key")
 
 
-def test_create_ig_media_container_returns_container_id():
-    """create_ig_media_container posts to /media and returns the container id."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"id": "17889618863059855"}
-    with patch("instagram_agent.http_requests.post", return_value=mock_response):
-        cid = create_ig_media_container(
-            ig_user_id="12345",
-            image_url="https://i.ibb.co/abc123/noor.jpg",
-            caption="Bismillah. #Noor",
-            access_token="PAGE_TOKEN",
-        )
-    assert cid == "17889618863059855"
-
-
-def test_create_ig_media_container_raises_without_id():
-    """create_ig_media_container raises RuntimeError when API response lacks 'id'."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"error": {"message": "Invalid OAuth access token"}}
-    with patch("instagram_agent.http_requests.post", return_value=mock_response):
-        with pytest.raises(RuntimeError, match="IG container creation failed"):
-            create_ig_media_container("12345", "https://i.ibb.co/x.jpg", "Cap", "BAD_TOKEN")
-
-
 def test_publish_ig_media_container_returns_media_id():
     """publish_ig_media_container posts to /media_publish and returns the media id."""
     mock_response = MagicMock()
@@ -162,6 +138,51 @@ def test_publish_ig_media_container_raises_without_id():
     with patch("instagram_agent.http_requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="IG publish failed"):
             publish_ig_media_container("12345", "container123", "BAD_TOKEN")
+
+
+from instagram_agent import create_ig_reel_container, wait_for_ig_container
+
+
+def test_create_ig_reel_container_uses_reels_media_type():
+    """create_ig_reel_container sends media_type=REELS and video_url."""
+    mock_response = MagicMock()
+    mock_response.ok = True
+    mock_response.json.return_value = {"id": "container123"}
+    with patch("instagram_agent.http_requests.post", return_value=mock_response) as mock_post:
+        cid = create_ig_reel_container(
+            ig_user_id="12345",
+            video_url="https://res.cloudinary.com/noor/video/upload/noor.mp4",
+            caption="Bismillah. #Noor",
+            access_token="PAGE_TOKEN",
+        )
+    assert cid == "container123"
+    params = mock_post.call_args[1]["params"]
+    assert params["media_type"] == "REELS"
+    assert "video_url" in params
+    assert "image_url" not in params
+
+
+def test_wait_for_ig_container_returns_when_finished():
+    """wait_for_ig_container polls until status_code is FINISHED."""
+    mock_response_pending = MagicMock()
+    mock_response_pending.json.return_value = {"status_code": "IN_PROGRESS"}
+    mock_response_done = MagicMock()
+    mock_response_done.json.return_value = {"status_code": "FINISHED"}
+
+    with patch("instagram_agent.http_requests.get", side_effect=[mock_response_pending, mock_response_done]), \
+         patch("instagram_agent.time.sleep"):
+        wait_for_ig_container("container123", "PAGE_TOKEN")  # should not raise
+
+
+def test_wait_for_ig_container_raises_on_timeout():
+    """wait_for_ig_container raises RuntimeError after too many pending responses."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"status_code": "IN_PROGRESS"}
+
+    with patch("instagram_agent.http_requests.get", return_value=mock_response), \
+         patch("instagram_agent.time.sleep"):
+        with pytest.raises(RuntimeError, match="timed out"):
+            wait_for_ig_container("container123", "PAGE_TOKEN", max_attempts=2)
 
 
 # ── Voiceover Generation ──────────────────────────────────────────────────────

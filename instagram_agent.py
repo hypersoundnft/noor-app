@@ -208,34 +208,59 @@ def upload_to_imgbb(image_bytes: bytes, api_key: str) -> str:
     return data["data"]["url"]
 
 
-def create_ig_media_container(
-    ig_user_id: str, image_url: str, caption: str, access_token: str
+def create_ig_reel_container(
+    ig_user_id: str, video_url: str, caption: str, access_token: str
 ) -> str:
-    """Step 1 of 2: Create an IG media container for a feed image post.
+    """Step 1 of 3: Create an IG media container for a Reel.
 
-    image_url must be a publicly accessible HTTPS URL.
-    Returns container_id (pass to publish_ig_media_container).
-    Raises RuntimeError if the API response lacks an 'id'.
+    video_url must be a publicly accessible HTTPS URL (MP4, H.264, 9:16).
+    Returns container_id.
+    Raises RuntimeError on API failure.
     """
     response = http_requests.post(
         f"{IG_API_BASE}/{ig_user_id}/media",
         params={
-            "image_url": image_url,
+            "media_type": "REELS",
+            "video_url": video_url,
             "caption": caption,
             "access_token": access_token,
         },
         timeout=30,
     )
     if not response.ok:
-        raise RuntimeError(f"IG container creation failed ({response.status_code}): {response.text}")
+        raise RuntimeError(f"IG Reel container creation failed ({response.status_code}): {response.text}")
     data = response.json()
     if "id" not in data:
-        raise RuntimeError(f"IG container creation failed: {data}")
+        raise RuntimeError(f"IG Reel container creation failed: {data}")
     return data["id"]
 
 
+def wait_for_ig_container(
+    container_id: str, access_token: str, max_attempts: int = 24, poll_interval: int = 5
+) -> None:
+    """Step 2 of 3: Poll until the IG container status is FINISHED.
+
+    Polls every poll_interval seconds up to max_attempts times (~120s default).
+    Raises RuntimeError on timeout or error status.
+    """
+    for _ in range(max_attempts):
+        response = http_requests.get(
+            f"{IG_API_BASE}/{container_id}",
+            params={"fields": "status_code", "access_token": access_token},
+            timeout=30,
+        )
+        response.raise_for_status()
+        status = response.json().get("status_code")
+        if status == "FINISHED":
+            return
+        if status == "ERROR":
+            raise RuntimeError(f"IG container processing failed: {response.json()}")
+        time.sleep(poll_interval)
+    raise RuntimeError(f"IG container {container_id} timed out after {max_attempts} attempts")
+
+
 def publish_ig_media_container(ig_user_id: str, container_id: str, access_token: str) -> str:
-    """Step 2 of 2: Publish an IG media container to the feed.
+    """Step 3 of 3: Publish an IG media container to the feed.
 
     Returns the media_id of the published post.
     Raises RuntimeError if the API response lacks an 'id'.
