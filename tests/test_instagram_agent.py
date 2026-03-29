@@ -1,5 +1,4 @@
 """Tests for instagram_agent.py — content generation."""
-import json
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -51,99 +50,44 @@ def test_generate_content_narration_is_string():
     assert len(result["narration"]) > 0
 
 
-# ── Image Generation ──────────────────────────────────────────────────────────
-from instagram_agent import generate_image
+# ── Video Generation ──────────────────────────────────────────────────────────
+from instagram_agent import generate_video_clips, concatenate_clips
 
 
-def test_generate_image_downloads_dall_e_url_and_returns_bytes():
-    """generate_image calls DALL-E 3, downloads the returned URL, returns raw bytes."""
-    fake_bytes = b"\x89PNG\r\nFAKE"
-    mock_openai = MagicMock()
-    mock_openai.images.generate.return_value = MagicMock(
-        data=[MagicMock(url="https://dalle.openai.com/fake-image.png")]
-    )
-    mock_http_response = MagicMock()
-    mock_http_response.content = fake_bytes
+def test_generate_video_clips_returns_three_bytes_objects():
+    """generate_video_clips calls Veo 2 three times and returns 3 bytes objects."""
+    mock_client = MagicMock()
+    fake_video_bytes = b"FAKEVIDEO"
+    mock_operation = MagicMock()
+    mock_operation.done = True
+    mock_operation.response.generated_videos = [MagicMock(video=MagicMock(video_bytes=fake_video_bytes))]
+    mock_client.models.generate_videos.return_value = mock_operation
 
-    with patch("instagram_agent.http_requests.get", return_value=mock_http_response):
-        result = generate_image("minimalist mosque at dawn", mock_openai)
+    clips = generate_video_clips("cinematic mosque dawn", mock_client)
 
-    assert result == fake_bytes
-    mock_openai.images.generate.assert_called_once_with(
-        model="dall-e-3",
-        prompt="minimalist mosque at dawn",
-        size="1024x1024",
-        quality="standard",
-        n=1,
-    )
+    assert len(clips) == 3
+    assert all(c == fake_video_bytes for c in clips)
+    assert mock_client.models.generate_videos.call_count == 3
 
 
-def test_generate_image_raises_on_download_failure():
-    """generate_image raises if the image download returns an HTTP error."""
-    import requests as req
-    mock_openai = MagicMock()
-    mock_openai.images.generate.return_value = MagicMock(
-        data=[MagicMock(url="https://dalle.openai.com/fake-image.png")]
-    )
-    mock_http_response = MagicMock()
-    mock_http_response.raise_for_status.side_effect = req.exceptions.HTTPError("503")
+def test_concatenate_clips_produces_file(tmp_path):
+    """concatenate_clips writes an MP4 file and returns its path (mocked ffmpeg)."""
+    # Write 3 fake "clip" files
+    clip_paths = []
+    for i in range(3):
+        p = tmp_path / f"clip{i}.mp4"
+        p.write_bytes(b"FAKE")
+        clip_paths.append(p)
 
-    with patch("instagram_agent.http_requests.get", return_value=mock_http_response):
-        with pytest.raises(req.exceptions.HTTPError):
-            generate_image("minimalist mosque", mock_openai)
+    with patch("instagram_agent.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        out_path = concatenate_clips(clip_paths, tmp_path)
 
-
-# ── Logo Overlay ──────────────────────────────────────────────────────────────
-import io as _io
-import tempfile
-from pathlib import Path
-from PIL import Image as PILImage
-from instagram_agent import overlay_logo
-
-
-def _make_png(width=1024, height=1024, color=(180, 180, 180)) -> bytes:
-    """Create a minimal in-memory PNG for tests."""
-    img = PILImage.new("RGB", (width, height), color)
-    buf = _io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def _make_logo_png(width=400, height=100) -> Path:
-    """Write a minimal RGBA logo PNG to a temp file and return its Path."""
-    img = PILImage.new("RGBA", (width, height), (255, 255, 255, 200))
-    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-    img.save(tmp.name, format="PNG")
-    return Path(tmp.name)
-
-
-def test_overlay_logo_returns_jpeg_bytes():
-    """overlay_logo composites the logo and returns JPEG bytes (FF D8 magic)."""
-    image_bytes = _make_png()
-    logo_path = _make_logo_png()
-    result = overlay_logo(image_bytes, logo_path)
-    assert result[:2] == b"\xff\xd8", "Expected JPEG output (FF D8 magic bytes)"
-
-
-def test_overlay_logo_preserves_input_dimensions():
-    """Output image is the same size as the input image."""
-    image_bytes = _make_png(1024, 1024)
-    logo_path = _make_logo_png()
-    result = overlay_logo(image_bytes, logo_path)
-    out_img = PILImage.open(_io.BytesIO(result))
-    assert out_img.size == (1024, 1024)
-
-
-def test_overlay_logo_scales_wide_logo_to_max_width():
-    """A logo wider than LOGO_MAX_WIDTH is scaled down."""
-    from instagram_agent import LOGO_MAX_WIDTH
-    image_bytes = _make_png()
-    # Logo wider than LOGO_MAX_WIDTH
-    logo_path = _make_logo_png(width=LOGO_MAX_WIDTH * 3, height=200)
-    # Should not raise; output image still valid
-    result = overlay_logo(image_bytes, logo_path)
-    out_img = PILImage.open(_io.BytesIO(result))
-    assert out_img.size == (1024, 1024)
+    assert out_path == tmp_path / "combined.mp4"
+    # Verify ffmpeg was called with concat
+    args = mock_run.call_args[0][0]
+    assert "ffmpeg" in args
+    assert "-f" in args and "concat" in args
 
 
 # ── Instagram Posting ─────────────────────────────────────────────────────────
@@ -218,49 +162,3 @@ def test_publish_ig_media_container_raises_without_id():
     with patch("instagram_agent.http_requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="IG publish failed"):
             publish_ig_media_container("12345", "container123", "BAD_TOKEN")
-
-
-# ── Integration: main() ───────────────────────────────────────────────────────
-from instagram_agent import main
-
-
-def test_main_completes_full_pipeline(monkeypatch):
-    """main() runs all five stages end-to-end with all external calls mocked.
-
-    This exercises the wiring: content → image → upload → container → publish.
-    No logo file exists at the test path, so the overlay stage is skipped.
-    """
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-openai")
-    monkeypatch.setenv("IMGBB_API_KEY", "test-imgbb")
-    monkeypatch.setenv("IG_USER_ID", "12345")
-    monkeypatch.setenv("IG_ACCESS_TOKEN", "test-token")
-
-    fake_png = _make_png()  # reuse helper from logo tests
-
-    mock_imgbb = MagicMock()
-    mock_imgbb.json.return_value = {"success": True, "data": {"url": "https://i.ibb.co/test.jpg"}}
-    mock_ig_container = MagicMock()
-    mock_ig_container.json.return_value = {"id": "container123"}
-    mock_ig_publish = MagicMock()
-    mock_ig_publish.json.return_value = {"id": "media456"}
-
-    with patch("instagram_agent.anthropic.Anthropic") as mock_anthropic_cls, \
-         patch("instagram_agent.openai.OpenAI") as mock_openai_cls, \
-         patch("instagram_agent.http_requests.get") as mock_get, \
-         patch("instagram_agent.http_requests.post") as mock_post:
-
-        mock_anthropic_cls.return_value.messages.create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps({
-                "image_prompt": "soft mosque dawn light",
-                "caption": "Start your day with Bismillah. #Noor",
-                "topic": "fitrah",
-            }))]
-        )
-        mock_openai_cls.return_value.images.generate.return_value = MagicMock(
-            data=[MagicMock(url="https://dalle.openai.com/fake.png")]
-        )
-        mock_get.return_value = MagicMock(content=fake_png)
-        mock_post.side_effect = [mock_imgbb, mock_ig_container, mock_ig_publish]
-
-        main()  # should complete without raising

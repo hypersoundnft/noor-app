@@ -1,7 +1,8 @@
 """Daily Instagram post agent for the Noor brand."""
 
-import io
 import os
+import subprocess
+import time
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,7 +11,6 @@ from google import genai as google_genai
 from google.genai import types as google_types
 import anthropic
 import requests as http_requests
-from PIL import Image
 
 # ── Content Generation ────────────────────────────────────────────────────────
 
@@ -85,47 +85,45 @@ def generate_content(today: date, client: google_genai.Client) -> dict:
     return dict(response.candidates[0].content.parts[0].function_call.args)
 
 
-# ── Image Generation ──────────────────────────────────────────────────────────
+# ── Video Generation ──────────────────────────────────────────────────────────
 
+def generate_video_clips(video_prompt: str, client: google_genai.Client, num_clips: int = 3) -> list[bytes]:
+    """Generate num_clips short video clips using Veo 2 and return list of MP4 bytes.
 
-def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
-    """Call Imagen 4 via Google AI Studio and return raw image bytes."""
-    response = client.models.generate_images(
-        model="imagen-4.0-generate-001",
-        prompt=image_prompt,
-        config=google_types.GenerateImagesConfig(number_of_images=1),
-    )
-    return response.generated_images[0].image.image_bytes
-
-
-# ── Logo Overlay ──────────────────────────────────────────────────────────────
-
-LOGO_MARGIN = 30   # pixels from edge
-LOGO_MAX_WIDTH = 180  # max logo width in pixels
-
-
-def overlay_logo(image_bytes: bytes, logo_path: Path) -> bytes:
-    """Composite the Noor logo into the bottom-right corner.
-
-    Scales the logo to at most LOGO_MAX_WIDTH wide, maintaining aspect ratio.
-    Returns JPEG bytes at 95% quality.
+    Each clip is 8 seconds at 9:16 aspect ratio. Polls until operation is done.
     """
-    base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    logo = Image.open(logo_path).convert("RGBA")
+    clips = []
+    for _ in range(num_clips):
+        operation = client.models.generate_videos(
+            model="veo-2.0-generate-001",
+            prompt=video_prompt,
+            config=google_types.GenerateVideosConfig(
+                aspect_ratio="9:16",
+                duration_seconds=8,
+            ),
+        )
+        while not operation.done:
+            time.sleep(10)
+            operation = client.operations.get(operation)
+        clips.append(operation.response.generated_videos[0].video.video_bytes)
+    return clips
 
-    ratio = LOGO_MAX_WIDTH / logo.width
-    new_size = (LOGO_MAX_WIDTH, max(1, int(logo.height * ratio)))
-    logo = logo.resize(new_size, Image.LANCZOS)
 
-    x = base.width - new_size[0] - LOGO_MARGIN
-    y = base.height - new_size[1] - LOGO_MARGIN
+def concatenate_clips(clip_paths: list[Path], work_dir: Path) -> Path:
+    """Concatenate MP4 clips using ffmpeg concat demuxer.
 
-    composite = base.copy()
-    composite.paste(logo, (x, y), logo)
-
-    out = io.BytesIO()
-    composite.convert("RGB").save(out, format="JPEG", quality=95)
-    return out.getvalue()
+    Writes a clips.txt manifest and runs ffmpeg. Returns path to combined.mp4.
+    Raises subprocess.CalledProcessError if ffmpeg fails.
+    """
+    manifest = work_dir / "clips.txt"
+    manifest.write_text("\n".join(f"file '{p}'" for p in clip_paths))
+    out_path = work_dir / "combined.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(manifest), "-c", "copy", str(out_path)],
+        check=True,
+        capture_output=True,
+    )
+    return out_path
 
 
 # ── Instagram Posting ─────────────────────────────────────────────────────────
@@ -252,40 +250,20 @@ def main() -> None:
 
     claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     google_client = google_genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    cloudinary_cloud_name = os.environ["CLOUDINARY_CLOUD_NAME"]
-    cloudinary_api_key = os.environ["CLOUDINARY_API_KEY"]
-    cloudinary_api_secret = os.environ["CLOUDINARY_API_SECRET"]
-    ig_user_id = os.environ["IG_USER_ID"]
-    ig_access_token = os.environ["IG_ACCESS_TOKEN"]
-    telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
-    telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
-    logo_path = Path(__file__).parent / "public" / "noor_logo_white.png"
-
     print(f"[1/5] Generating content for {today_wib}...")
     content = generate_content(today_wib, claude_client)
     print(f"      Topic: {content['topic']}")
     print(f"      Caption preview: {content['caption'][:60]}...")
 
-    print("[2/5] Generating image with Imagen 4...")
-    image_bytes = generate_image(content["image_prompt"], google_client)
-    print(f"      Image: {len(image_bytes):,} bytes")
+    print("[2/5] Generating video clips with Veo 2...")
+    clips = generate_video_clips(content["image_prompt"], google_client)
+    print(f"      Generated {len(clips)} clip(s).")
 
-    print("[3/5] Overlaying Noor logo...")
-    if logo_path.exists():
-        image_bytes = overlay_logo(image_bytes, logo_path)
-        print("      Logo composited.")
-    else:
-        print(f"      Warning: no logo at {logo_path} — skipping overlay")
+    print("[3/5] Skipped (video concat + upload — see future tasks)...")
 
-    print("[4/5] Posting to Instagram...")
-    image_url = upload_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
-    print(f"      Uploaded to Cloudinary: {image_url}")
-    container_id = create_ig_media_container(ig_user_id, image_url, content["caption"], ig_access_token)
-    media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
-    print(f"      Published! media_id={media_id}")
+    print("[4/5] Skipped (Instagram posting — see future tasks)...")
 
-    print("[5/5] Sending to Telegram...")
-    send_to_telegram(image_bytes, content["caption"], telegram_token, telegram_chat_id)
+    print("[5/5] Skipped (Telegram delivery — see future tasks)...")
     print("      Done!")
 
 
