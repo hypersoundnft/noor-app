@@ -185,6 +185,17 @@ def test_wait_for_ig_container_raises_on_timeout():
             wait_for_ig_container("container123", "PAGE_TOKEN", max_attempts=2)
 
 
+def test_wait_for_ig_container_raises_on_error_status():
+    """wait_for_ig_container raises RuntimeError when status_code is ERROR."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"status_code": "ERROR"}
+
+    with patch("instagram_agent.http_requests.get", return_value=mock_response), \
+         patch("instagram_agent.time.sleep"):
+        with pytest.raises(RuntimeError, match="processing failed"):
+            wait_for_ig_container("container123", "PAGE_TOKEN")
+
+
 # ── Voiceover Generation ──────────────────────────────────────────────────────
 from instagram_agent import generate_voiceover
 
@@ -231,6 +242,7 @@ def test_upload_to_cloudinary_uses_video_resource_type():
     assert url == "https://res.cloudinary.com/noor/video/upload/noor.mp4"
     call_kwargs = mock_upload.call_args[1]
     assert call_kwargs["resource_type"] == "video"
+    assert call_kwargs["format"] == "mp4"
 
 
 # ── Video + Audio Merge ───────────────────────────────────────────────────────
