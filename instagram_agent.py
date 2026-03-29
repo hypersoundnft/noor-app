@@ -216,37 +216,48 @@ def send_to_telegram(image_bytes: bytes, caption: str, bot_token: str, chat_id: 
 
 
 def main() -> None:
-    """Run the full Noor content pipeline, delivering to Telegram.
+    """Run the full Noor content pipeline, posting to Instagram and Telegram.
 
-    Reads four environment variables:
-      ANTHROPIC_API_KEY, OPENAI_API_KEY,
+    Reads environment variables:
+      ANTHROPIC_API_KEY, GEMINI_API_KEY,
+      IMGBB_API_KEY, IG_USER_ID, IG_ACCESS_TOKEN,
       TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
     """
     today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
 
     claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     google_client = google_genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    imgbb_api_key = os.environ["IMGBB_API_KEY"]
+    ig_user_id = os.environ["IG_USER_ID"]
+    ig_access_token = os.environ["IG_ACCESS_TOKEN"]
     telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
     telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
     logo_path = Path(__file__).parent / "public" / "noor_logo_white.png"
 
-    print(f"[1/4] Generating content for {today_wib}...")
+    print(f"[1/5] Generating content for {today_wib}...")
     content = generate_content(today_wib, claude_client)
     print(f"      Topic: {content['topic']}")
     print(f"      Caption preview: {content['caption'][:60]}...")
 
-    print("[2/4] Generating image with Imagen 3...")
+    print("[2/5] Generating image with Imagen 4...")
     image_bytes = generate_image(content["image_prompt"], google_client)
     print(f"      Image: {len(image_bytes):,} bytes")
 
-    print("[3/4] Overlaying Noor logo...")
+    print("[3/5] Overlaying Noor logo...")
     if logo_path.exists():
         image_bytes = overlay_logo(image_bytes, logo_path)
         print("      Logo composited.")
     else:
         print(f"      Warning: no logo at {logo_path} — skipping overlay")
 
-    print("[4/4] Sending to Telegram...")
+    print("[4/5] Posting to Instagram...")
+    image_url = upload_to_imgbb(image_bytes, imgbb_api_key)
+    print(f"      Uploaded to imgbb: {image_url}")
+    container_id = create_ig_media_container(ig_user_id, image_url, content["caption"], ig_access_token)
+    media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
+    print(f"      Published! media_id={media_id}")
+
+    print("[5/5] Sending to Telegram...")
     send_to_telegram(image_bytes, content["caption"], telegram_token, telegram_chat_id)
     print("      Done!")
 
