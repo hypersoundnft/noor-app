@@ -152,7 +152,8 @@ def create_ig_media_container(
         },
         timeout=30,
     )
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(f"IG container creation failed ({response.status_code}): {response.text}")
     data = response.json()
     if "id" not in data:
         raise RuntimeError(f"IG container creation failed: {data}")
