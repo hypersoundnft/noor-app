@@ -254,3 +254,35 @@ def test_merge_video_audio_calls_ffmpeg(tmp_path):
     assert "-shortest" in args
     assert str(video_path) in args
     assert str(audio_path) in args
+
+
+# ── Telegram Delivery ─────────────────────────────────────────────────────────
+from instagram_agent import send_to_telegram
+
+
+def test_send_to_telegram_uses_send_video():
+    """send_to_telegram calls sendVideo (not sendPhoto) with MP4 bytes."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"ok": True}
+
+    with patch("instagram_agent.http_requests.post", return_value=mock_response) as mock_post:
+        send_to_telegram(b"FAKEMP4", "Caption text. #Noor", "bot-token", "-1001234567890")
+
+    call_url = mock_post.call_args[0][0]
+    assert "sendVideo" in call_url
+    assert "sendPhoto" not in call_url
+
+
+def test_send_to_telegram_truncates_caption_at_1024():
+    """send_to_telegram truncates caption to 1024 chars for the video message."""
+    long_caption = "A" * 2000
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"ok": True}
+
+    with patch("instagram_agent.http_requests.post", return_value=mock_response) as mock_post:
+        send_to_telegram(b"FAKEMP4", long_caption, "bot-token", "-1001234567890")
+
+    first_call_data = mock_post.call_args_list[0][1]["data"]
+    assert len(first_call_data["caption"]) == 1024

@@ -285,22 +285,22 @@ def publish_ig_media_container(ig_user_id: str, container_id: str, access_token:
 TELEGRAM_API_BASE = "https://api.telegram.org"
 
 
-def send_to_telegram(image_bytes: bytes, caption: str, bot_token: str, chat_id: str) -> None:
-    """Send image + caption to a Telegram chat via Bot API.
+def send_to_telegram(video_bytes: bytes, caption: str, bot_token: str, chat_id: str) -> None:
+    """Send MP4 video + caption to a Telegram chat via Bot API.
 
-    Sends the photo with caption (truncated to 1024 chars if needed).
+    Sends the video with caption (truncated to 1024 chars).
     If caption exceeds 1024 chars, sends remainder as a follow-up message.
     """
-    photo_url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendPhoto"
+    video_url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendVideo"
     response = http_requests.post(
-        photo_url,
+        video_url,
         data={"chat_id": chat_id, "caption": caption[:1024]},
-        files={"photo": ("noor.jpg", image_bytes, "image/jpeg")},
-        timeout=30,
+        files={"video": ("noor.mp4", video_bytes, "video/mp4")},
+        timeout=60,
     )
     response.raise_for_status()
     if not response.json().get("ok"):
-        raise RuntimeError(f"Telegram sendPhoto failed: {response.json()}")
+        raise RuntimeError(f"Telegram sendVideo failed: {response.json()}")
 
     if len(caption) > 1024:
         msg_url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage"
