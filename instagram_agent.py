@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import tempfile
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -9,7 +10,6 @@ from zoneinfo import ZoneInfo
 
 from google import genai as google_genai
 from google.genai import types as google_types
-import anthropic
 import requests as http_requests
 
 # ── Content Generation ────────────────────────────────────────────────────────
@@ -193,20 +193,6 @@ def upload_to_cloudinary(video_bytes: bytes, cloud_name: str, api_key: str, api_
     return result["secure_url"]
 
 
-def upload_to_imgbb(image_bytes: bytes, api_key: str) -> str:
-    """Upload image bytes to imgbb and return the public URL."""
-    import base64
-    b64 = base64.b64encode(image_bytes).decode()
-    response = http_requests.post(
-        "https://api.imgbb.com/1/upload",
-        data={"key": api_key, "image": b64},
-        timeout=30,
-    )
-    data = response.json()
-    if not data.get("success"):
-        raise RuntimeError(f"imgbb upload failed: {data}")
-    return data["data"]["url"]
-
 
 def create_ig_reel_container(
     ig_user_id: str, video_url: str, caption: str, access_token: str
@@ -316,32 +302,69 @@ def send_to_telegram(video_bytes: bytes, caption: str, bot_token: str, chat_id: 
 
 
 def main() -> None:
-    """Run the full Noor content pipeline, posting to Instagram and Telegram.
+    """Run the full Noor video Reel pipeline.
 
-    Reads environment variables:
-      ANTHROPIC_API_KEY, GEMINI_API_KEY,
-      IMGBB_API_KEY, IG_USER_ID, IG_ACCESS_TOKEN,
+    Environment variables required:
+      GEMINI_API_KEY,
+      CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET,
+      IG_USER_ID, IG_ACCESS_TOKEN,
       TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
     """
     today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
 
-    claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     google_client = google_genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    print(f"[1/5] Generating content for {today_wib}...")
-    content = generate_content(today_wib, claude_client)
+    cloudinary_cloud_name = os.environ["CLOUDINARY_CLOUD_NAME"]
+    cloudinary_api_key = os.environ["CLOUDINARY_API_KEY"]
+    cloudinary_api_secret = os.environ["CLOUDINARY_API_SECRET"]
+    ig_user_id = os.environ["IG_USER_ID"]
+    ig_access_token = os.environ["IG_ACCESS_TOKEN"]
+    telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
+    telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
+
+    print(f"[1/7] Generating content for {today_wib}...")
+    content = generate_content(today_wib, google_client)
     print(f"      Topic: {content['topic']}")
     print(f"      Caption preview: {content['caption'][:60]}...")
 
-    print("[2/5] Generating video clips with Veo 2...")
-    clips = generate_video_clips(content["image_prompt"], google_client)
-    print(f"      Generated {len(clips)} clip(s).")
+    with tempfile.TemporaryDirectory() as tmp_str:
+        work_dir = Path(tmp_str)
 
-    print("[3/5] Skipped (video concat + upload — see future tasks)...")
+        print("[2/7] Generating 3 video clips with Veo 2...")
+        clip_bytes_list = generate_video_clips(content["image_prompt"], google_client)
+        clip_paths = []
+        for i, clip_bytes in enumerate(clip_bytes_list):
+            p = work_dir / f"clip{i}.mp4"
+            p.write_bytes(clip_bytes)
+            clip_paths.append(p)
+        print(f"      {len(clip_paths)} clips generated.")
 
-    print("[4/5] Skipped (Instagram posting — see future tasks)...")
+        print("[3/7] Concatenating clips...")
+        combined_path = concatenate_clips(clip_paths, work_dir)
+        print(f"      Combined: {combined_path.stat().st_size:,} bytes")
 
-    print("[5/5] Skipped (Telegram delivery — see future tasks)...")
-    print("      Done!")
+        print("[4/7] Generating voiceover...")
+        audio_bytes = generate_voiceover(content["narration"], google_client)
+        audio_path = work_dir / "narration.wav"
+        audio_path.write_bytes(audio_bytes)
+        print(f"      Audio: {len(audio_bytes):,} bytes")
+
+        print("[5/7] Merging video + audio...")
+        final_path = merge_video_audio(combined_path, audio_path, work_dir)
+        print(f"      Final: {final_path.stat().st_size:,} bytes")
+
+        print("[6/7] Uploading to Cloudinary and posting as Reel...")
+        video_bytes = final_path.read_bytes()
+        video_url = upload_to_cloudinary(video_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
+        print(f"      Uploaded: {video_url}")
+        container_id = create_ig_reel_container(ig_user_id, video_url, content["caption"], ig_access_token)
+        print(f"      Container: {container_id} — waiting for processing...")
+        wait_for_ig_container(container_id, ig_access_token)
+        media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
+        print(f"      Published! media_id={media_id}")
+
+        print("[7/7] Sending to Telegram...")
+        send_to_telegram(video_bytes, content["caption"], telegram_token, telegram_chat_id)
+        print("      Done!")
 
 
 if __name__ == "__main__":
