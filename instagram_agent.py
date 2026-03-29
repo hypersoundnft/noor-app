@@ -128,6 +128,31 @@ def concatenate_clips(clip_paths: list[Path], work_dir: Path) -> Path:
     return out_path
 
 
+# ── Voiceover Generation ──────────────────────────────────────────────────────
+
+
+def generate_voiceover(narration: str, client: google_genai.Client) -> bytes:
+    """Generate a spoken voiceover from narration text using Gemini TTS.
+
+    Uses the Kore voice (warm, calm). Returns raw audio bytes (WAV/PCM).
+    """
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-preview-tts",
+        contents=narration,
+        config=google_types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=google_types.SpeechConfig(
+                voice_config=google_types.VoiceConfig(
+                    prebuilt_voice_config=google_types.PrebuiltVoiceConfig(
+                        voice_name="Kore",
+                    )
+                )
+            ),
+        ),
+    )
+    return response.candidates[0].content.parts[0].inline_data.data
+
+
 # ── Instagram Posting ─────────────────────────────────────────────────────────
 
 IG_API_BASE = "https://graph.facebook.com/v22.0"

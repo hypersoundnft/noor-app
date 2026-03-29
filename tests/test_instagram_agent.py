@@ -162,3 +162,35 @@ def test_publish_ig_media_container_raises_without_id():
     with patch("instagram_agent.http_requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="IG publish failed"):
             publish_ig_media_container("12345", "container123", "BAD_TOKEN")
+
+
+# ── Voiceover Generation ──────────────────────────────────────────────────────
+from instagram_agent import generate_voiceover
+
+
+def test_generate_voiceover_returns_bytes():
+    """generate_voiceover calls Gemini TTS and returns audio bytes."""
+    mock_client = MagicMock()
+    fake_audio = b"RIFF....WAVEfmt "
+    mock_client.models.generate_content.return_value = MagicMock(
+        candidates=[MagicMock(content=MagicMock(parts=[
+            MagicMock(inline_data=MagicMock(data=fake_audio))
+        ]))]
+    )
+    result = generate_voiceover("Every morning is a gift.", mock_client)
+    assert result == fake_audio
+
+
+def test_generate_voiceover_uses_kore_voice():
+    """generate_voiceover uses the Kore voice preset."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = MagicMock(
+        candidates=[MagicMock(content=MagicMock(parts=[
+            MagicMock(inline_data=MagicMock(data=b"audio"))
+        ]))]
+    )
+    generate_voiceover("narration text", mock_client)
+    call_kwargs = mock_client.models.generate_content.call_args[1]
+    config = call_kwargs["config"]
+    voice_name = config.speech_config.voice_config.prebuilt_voice_config.voice_name
+    assert voice_name == "Kore"
