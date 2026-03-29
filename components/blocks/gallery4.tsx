@@ -82,7 +82,7 @@ const Gallery4 = ({
           setApi={setCarouselApi}
           opts={{ breakpoints: { "(max-width: 768px)": { dragFree: true } } }}
         >
-          <CarouselContent className="ml-6 md:ml-12">
+          <CarouselContent className="ml-6 md:ml-0 md:justify-center md:px-12">
             {items.map((item) => (
               <CarouselItem key={item.id} className="max-w-[300px] pl-[20px] lg:max-w-[360px]">
                 <a href={item.href} className="group rounded-xl block">
