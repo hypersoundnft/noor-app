@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
 
 export const maxDuration = 30;
+
+// Rate limiter: 10 scans per IP per hour — only active when Upstash is configured
+const ratelimit =
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+    ? new Ratelimit({
+        redis: Redis.fromEnv(),
+        limiter: Ratelimit.slidingWindow(10, '1 h'),
+        analytics: false,
+        prefix: 'noor:ocr',
+      })
+    : null;
 
 const PROMPT = `You are an OCR system specialized in reading food product ingredient labels.
 
@@ -28,6 +41,24 @@ function isAllowedOrigin(request: NextRequest): boolean {
 export async function POST(request: NextRequest) {
   if (!isAllowedOrigin(request)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // IP-based rate limiting via Upstash Redis (skipped if not configured)
+  if (ratelimit) {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'anonymous';
+    const { success, limit, remaining } = await ratelimit.limit(ip);
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many scans — please wait before trying again.' },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': String(limit),
+            'X-RateLimit-Remaining': String(remaining),
+          },
+        },
+      );
+    }
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
