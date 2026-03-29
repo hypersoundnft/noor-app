@@ -1,6 +1,5 @@
 """Daily Instagram post agent for the Noor brand."""
 
-import base64
 import io
 import os
 from datetime import date, datetime
@@ -115,23 +114,14 @@ def overlay_logo(image_bytes: bytes, logo_path: Path) -> bytes:
 IG_API_BASE = "https://graph.facebook.com/v22.0"
 
 
-def upload_to_imgbb(image_bytes: bytes, api_key: str) -> str:
-    """Upload image bytes to imgbb.com and return the public HTTPS URL.
+def upload_to_cloudinary(image_bytes: bytes, cloud_name: str, api_key: str, api_secret: str) -> str:
+    """Upload image bytes to Cloudinary and return the public HTTPS URL."""
+    import cloudinary
+    import cloudinary.uploader
 
-    imgbb free tier: 32 MB max, permanent storage.
-    Raises RuntimeError if the API reports failure.
-    """
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
-    response = http_requests.post(
-        "https://api.imgbb.com/1/upload",
-        data={"key": api_key, "image": b64},
-        timeout=30,
-    )
-    response.raise_for_status()
-    data = response.json()
-    if not data.get("success"):
-        raise RuntimeError(f"imgbb upload failed: {data}")
-    return data["data"]["url"]
+    cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret)
+    result = cloudinary.uploader.upload(image_bytes, resource_type="image", format="jpg")
+    return result["secure_url"]
 
 
 def create_ig_media_container(
@@ -228,7 +218,9 @@ def main() -> None:
 
     claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     google_client = google_genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    imgbb_api_key = os.environ["IMGBB_API_KEY"]
+    cloudinary_cloud_name = os.environ["CLOUDINARY_CLOUD_NAME"]
+    cloudinary_api_key = os.environ["CLOUDINARY_API_KEY"]
+    cloudinary_api_secret = os.environ["CLOUDINARY_API_SECRET"]
     ig_user_id = os.environ["IG_USER_ID"]
     ig_access_token = os.environ["IG_ACCESS_TOKEN"]
     telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -252,7 +244,7 @@ def main() -> None:
         print(f"      Warning: no logo at {logo_path} — skipping overlay")
 
     print("[4/5] Posting to Instagram...")
-    image_url = upload_to_imgbb(image_bytes, imgbb_api_key)
+    image_url = upload_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
     print(f"      Uploaded to imgbb: {image_url}")
     container_id = create_ig_media_container(ig_user_id, image_url, content["caption"], ig_access_token)
     media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
