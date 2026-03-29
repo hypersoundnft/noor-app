@@ -196,6 +196,22 @@ def test_generate_voiceover_uses_kore_voice():
     assert voice_name == "Kore"
 
 
+# ── Cloudinary Upload ─────────────────────────────────────────────────────────
+from instagram_agent import upload_to_cloudinary
+
+
+def test_upload_to_cloudinary_uses_video_resource_type():
+    """upload_to_cloudinary uploads with resource_type='video'."""
+    with patch("cloudinary.uploader.upload") as mock_upload, \
+         patch("cloudinary.config"):
+        mock_upload.return_value = {"secure_url": "https://res.cloudinary.com/noor/video/upload/noor.mp4"}
+        url = upload_to_cloudinary(b"FAKEVIDEO", "my_cloud", "api_key", "api_secret")
+
+    assert url == "https://res.cloudinary.com/noor/video/upload/noor.mp4"
+    call_kwargs = mock_upload.call_args[1]
+    assert call_kwargs["resource_type"] == "video"
+
+
 # ── Video + Audio Merge ───────────────────────────────────────────────────────
 from instagram_agent import merge_video_audio
 
