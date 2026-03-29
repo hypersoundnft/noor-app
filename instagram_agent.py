@@ -6,9 +6,9 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import anthropic
 from google import genai as google_genai
 from google.genai import types as google_types
+import anthropic
 import requests as http_requests
 from PIL import Image
 
@@ -18,15 +18,43 @@ TOPIC_ROTATION = ["fitrah", "halal_lens", "lifestyle"]
 
 SYSTEM_PROMPT = """You are the lead content strategist for 'Noor', a modern Islamic lifestyle brand and Halal food scanner. Your tone is encouraging, modern, minimalistic, and trustworthy.
 
-Generate a concept for an Instagram post on the given topic. Output ONLY valid JSON (no markdown, no extra text) with these exact keys:
-- "image_prompt": A highly detailed photorealistic image generation prompt. Style: cinematic photography, golden hour or soft natural light, shallow depth of field, ultra-detailed textures, 8K quality. Subject should feel real and tangible — a real person, real place, or real object that evokes the topic. Modern Islamic aesthetic. Do NOT include Arabic text or calligraphy in the image.
-- "caption": An engaging Instagram caption in English. Max 300 words. End with 3-5 relevant hashtags starting with #.
-- "topic": The exact topic string you received.
+Generate a concept for an Instagram Reel post on the given topic.
 
 Topic definitions:
 - fitrah: A daily Dua, Quranic reflection, or spiritual reminder
 - halal_lens: A hidden Haram ingredient to watch out for in everyday food or cosmetic products
 - lifestyle: A modern Muslim lifestyle tip (productivity, wellness, mindful habits)"""
+
+_POST_TOOL = google_types.Tool(
+    function_declarations=[
+        google_types.FunctionDeclaration(
+            name="create_post",
+            description="Create a Noor Instagram Reel post",
+            parameters=google_types.Schema(
+                type="OBJECT",
+                properties={
+                    "image_prompt": google_types.Schema(
+                        type="STRING",
+                        description="Highly detailed cinematic video generation prompt. Style: golden hour or soft natural light, 9:16 portrait, photorealistic, ultra-detailed. Subject evokes the topic. Modern Islamic aesthetic. No Arabic text or calligraphy.",
+                    ),
+                    "caption": google_types.Schema(
+                        type="STRING",
+                        description="Instagram caption in English. Max 300 words. End with 3-5 relevant hashtags.",
+                    ),
+                    "topic": google_types.Schema(
+                        type="STRING",
+                        description="The exact topic string received.",
+                    ),
+                    "narration": google_types.Schema(
+                        type="STRING",
+                        description="60-80 word spoken voiceover script. Warm, calm tone. No hashtags. No markdown. Written to be heard, not read.",
+                    ),
+                },
+                required=["image_prompt", "caption", "topic", "narration"],
+            ),
+        )
+    ]
+)
 
 
 def get_topic_for_date(today: date) -> str:
@@ -34,36 +62,27 @@ def get_topic_for_date(today: date) -> str:
     return TOPIC_ROTATION[today.timetuple().tm_yday % 3]
 
 
-_POST_TOOL = {
-    "name": "create_post",
-    "description": "Create a Noor Instagram post",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "image_prompt": {"type": "string", "description": "Detailed DALL-E/Imagen prompt"},
-            "caption": {"type": "string", "description": "Instagram caption with hashtags"},
-            "topic": {"type": "string", "description": "The topic key used"},
-        },
-        "required": ["image_prompt", "caption", "topic"],
-    },
-}
+def generate_content(today: date, client: google_genai.Client) -> dict:
+    """Call Gemini to generate image_prompt, caption, topic, narration via function calling.
 
-
-def generate_content(today: date, client: anthropic.Anthropic) -> dict:
-    """Call Claude to generate image_prompt and caption using tool use for reliable structured output.
-
-    Returns dict with keys: image_prompt, caption, topic.
+    Returns dict with keys: image_prompt, caption, topic, narration.
     """
     topic = get_topic_for_date(today)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        tools=[_POST_TOOL],
-        tool_choice={"type": "tool", "name": "create_post"},
-        messages=[{"role": "user", "content": f"Generate a Noor Instagram post for topic: {topic}"}],
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"Generate a Noor Instagram Reel post for topic: {topic}",
+        config=google_types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            tools=[_POST_TOOL],
+            tool_config=google_types.ToolConfig(
+                function_calling_config=google_types.FunctionCallingConfig(
+                    mode="ANY",
+                    allowed_function_names=["create_post"],
+                )
+            ),
+        ),
     )
-    return message.content[0].input
+    return dict(response.candidates[0].content.parts[0].function_call.args)
 
 
 # ── Image Generation ──────────────────────────────────────────────────────────
@@ -122,6 +141,21 @@ def upload_to_cloudinary(image_bytes: bytes, cloud_name: str, api_key: str, api_
     cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret)
     result = cloudinary.uploader.upload(image_bytes, resource_type="image", format="jpg")
     return result["secure_url"]
+
+
+def upload_to_imgbb(image_bytes: bytes, api_key: str) -> str:
+    """Upload image bytes to imgbb and return the public URL. (Legacy stub.)"""
+    import base64
+    b64 = base64.b64encode(image_bytes).decode()
+    response = http_requests.post(
+        "https://api.imgbb.com/1/upload",
+        data={"key": api_key, "image": b64},
+        timeout=30,
+    )
+    data = response.json()
+    if not data.get("success"):
+        raise RuntimeError(f"imgbb upload failed: {data}")
+    return data["data"]["url"]
 
 
 def create_ig_media_container(

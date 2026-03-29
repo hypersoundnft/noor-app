@@ -1,46 +1,54 @@
 """Tests for instagram_agent.py — content generation."""
 import json
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from instagram_agent import TOPIC_ROTATION, get_topic_for_date, generate_content
 
 
 def test_get_topic_for_date_covers_all_three_topics():
-    """Three consecutive day-of-year values cover all three topics."""
     results = {get_topic_for_date(date(2026, 1, d)) for d in range(1, 4)}
     assert results == set(TOPIC_ROTATION)
 
 
 def test_get_topic_for_date_is_deterministic():
-    """Same date always returns the same topic."""
     d = date(2026, 3, 27)
     assert get_topic_for_date(d) == get_topic_for_date(d)
 
 
 def test_generate_content_returns_required_keys():
-    """generate_content parses Claude's JSON and returns the three required keys."""
+    """generate_content returns dict with image_prompt, caption, topic, narration."""
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = MagicMock(
-        content=[MagicMock(text=json.dumps({
-            "image_prompt": "Minimalist mosque at dawn, soft golden light",
-            "caption": "Start your day with intention.\n\n#Noor #IslamicLifestyle #Fitrah",
-            "topic": "fitrah",
-        }))]
+    mock_fn_call = MagicMock()
+    mock_fn_call.args = {
+        "image_prompt": "Mosque at dawn, cinematic 9:16",
+        "caption": "Start with Bismillah.\n\n#Noor",
+        "topic": "fitrah",
+        "narration": "Every morning is a gift. Begin with gratitude.",
+    }
+    mock_client.models.generate_content.return_value = MagicMock(
+        candidates=[MagicMock(content=MagicMock(parts=[MagicMock(function_call=mock_fn_call)]))]
     )
     result = generate_content(date(2026, 3, 27), mock_client)
-    assert set(result.keys()) >= {"image_prompt", "caption", "topic"}
+    assert set(result.keys()) >= {"image_prompt", "caption", "topic", "narration"}
 
 
-def test_generate_content_raises_on_invalid_json():
-    """generate_content raises json.JSONDecodeError if Claude returns non-JSON."""
+def test_generate_content_narration_is_string():
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = MagicMock(
-        content=[MagicMock(text="Sorry, I cannot help with that.")]
+    mock_fn_call = MagicMock()
+    mock_fn_call.args = {
+        "image_prompt": "Golden hour mosque",
+        "caption": "Caption text. #Noor",
+        "topic": "lifestyle",
+        "narration": "Short spoken narration here.",
+    }
+    mock_client.models.generate_content.return_value = MagicMock(
+        candidates=[MagicMock(content=MagicMock(parts=[MagicMock(function_call=mock_fn_call)]))]
     )
-    with pytest.raises(json.JSONDecodeError):
-        generate_content(date(2026, 3, 27), mock_client)
+    result = generate_content(date(2026, 3, 27), mock_client)
+    assert isinstance(result["narration"], str)
+    assert len(result["narration"]) > 0
 
 
 # ── Image Generation ──────────────────────────────────────────────────────────
