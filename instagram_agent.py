@@ -144,7 +144,7 @@ def upload_to_cloudinary(image_bytes: bytes, cloud_name: str, api_key: str, api_
 
 
 def upload_to_imgbb(image_bytes: bytes, api_key: str) -> str:
-    """Upload image bytes to imgbb and return the public URL. (Legacy stub.)"""
+    """Upload image bytes to imgbb and return the public URL."""
     import base64
     b64 = base64.b64encode(image_bytes).decode()
     response = http_requests.post(
@@ -279,7 +279,7 @@ def main() -> None:
 
     print("[4/5] Posting to Instagram...")
     image_url = upload_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
-    print(f"      Uploaded to imgbb: {image_url}")
+    print(f"      Uploaded to Cloudinary: {image_url}")
     container_id = create_ig_media_container(ig_user_id, image_url, content["caption"], ig_access_token)
     media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
     print(f"      Published! media_id={media_id}")

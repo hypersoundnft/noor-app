@@ -52,7 +52,6 @@ def test_generate_content_narration_is_string():
 
 
 # ── Image Generation ──────────────────────────────────────────────────────────
-from unittest.mock import patch
 from instagram_agent import generate_image
 
 
