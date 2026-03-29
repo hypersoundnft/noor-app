@@ -153,6 +153,31 @@ def generate_voiceover(narration: str, client: google_genai.Client) -> bytes:
     return response.candidates[0].content.parts[0].inline_data.data
 
 
+# ── Video + Audio Merge ───────────────────────────────────────────────────────
+
+
+def merge_video_audio(video_path: Path, audio_path: Path, work_dir: Path) -> Path:
+    """Merge video and audio with ffmpeg, trimming to the shorter track.
+
+    Returns path to final.mp4. Raises subprocess.CalledProcessError if ffmpeg fails.
+    """
+    out_path = work_dir / "final.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            str(out_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return out_path
+
+
 # ── Instagram Posting ─────────────────────────────────────────────────────────
 
 IG_API_BASE = "https://graph.facebook.com/v22.0"

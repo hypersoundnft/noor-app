@@ -194,3 +194,26 @@ def test_generate_voiceover_uses_kore_voice():
     config = call_kwargs["config"]
     voice_name = config.speech_config.voice_config.prebuilt_voice_config.voice_name
     assert voice_name == "Kore"
+
+
+# ── Video + Audio Merge ───────────────────────────────────────────────────────
+from instagram_agent import merge_video_audio
+
+
+def test_merge_video_audio_calls_ffmpeg(tmp_path):
+    """merge_video_audio runs ffmpeg with -shortest and returns output path."""
+    video_path = tmp_path / "combined.mp4"
+    audio_path = tmp_path / "narration.wav"
+    video_path.write_bytes(b"FAKEVIDEO")
+    audio_path.write_bytes(b"FAKEAUDIO")
+
+    with patch("instagram_agent.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        out_path = merge_video_audio(video_path, audio_path, tmp_path)
+
+    assert out_path == tmp_path / "final.mp4"
+    args = mock_run.call_args[0][0]
+    assert "ffmpeg" in args
+    assert "-shortest" in args
+    assert str(video_path) in args
+    assert str(audio_path) in args
