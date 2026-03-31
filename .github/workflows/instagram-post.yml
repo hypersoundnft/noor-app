@@ -22,6 +22,7 @@ jobs:
 
       - name: Run Noor content agent
         env:
+          POST_FORMAT: image   # switch to "video" to enable Veo 2 Reels pipeline
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}

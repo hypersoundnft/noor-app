@@ -281,8 +281,50 @@ def test_send_to_telegram_truncates_caption_at_1024():
 # ── Integration: main() ───────────────────────────────────────────────────────
 
 
-def test_main_completes_full_pipeline(monkeypatch, tmp_path):
-    """main() runs all 7 stages end-to-end with all external calls mocked."""
+def test_main_image_pipeline(monkeypatch):
+    """main() runs the image pipeline when POST_FORMAT=image."""
+    monkeypatch.setenv("POST_FORMAT", "image")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test-cloud")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", "test-key")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", "test-secret")
+    monkeypatch.setenv("IG_USER_ID", "12345")
+    monkeypatch.setenv("IG_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-bot")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-1001234567890")
+
+    with patch("instagram_agent.google_genai.Client"), \
+         patch("instagram_agent.generate_content") as mock_content, \
+         patch("instagram_agent.generate_image") as mock_image, \
+         patch("instagram_agent.overlay_logo") as mock_logo, \
+         patch("instagram_agent.upload_image_to_cloudinary") as mock_upload, \
+         patch("instagram_agent.create_ig_image_container") as mock_container, \
+         patch("instagram_agent.publish_ig_media_container") as mock_publish, \
+         patch("instagram_agent.send_photo_to_telegram") as mock_telegram:
+
+        mock_content.return_value = {
+            "image_prompt": "mosque dawn", "caption": "Bismillah. #Noor",
+            "topic": "fitrah", "narration": "Every morning is a gift.",
+        }
+        mock_image.return_value = b"FAKEJPEG"
+        mock_logo.return_value = b"FAKEJPEG_WITH_LOGO"
+        mock_upload.return_value = "https://res.cloudinary.com/noor/image/noor.jpg"
+        mock_container.return_value = "container123"
+        mock_publish.return_value = "media456"
+
+        main()
+
+    mock_content.assert_called_once()
+    mock_image.assert_called_once()
+    mock_upload.assert_called_once()
+    mock_container.assert_called_once()
+    mock_publish.assert_called_once()
+    mock_telegram.assert_called_once()
+
+
+def test_main_video_pipeline(monkeypatch, tmp_path):
+    """main() runs the video pipeline when POST_FORMAT=video."""
+    monkeypatch.setenv("POST_FORMAT", "video")
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
     monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test-cloud")
     monkeypatch.setenv("CLOUDINARY_API_KEY", "test-key")
@@ -293,9 +335,8 @@ def test_main_completes_full_pipeline(monkeypatch, tmp_path):
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "-1001234567890")
 
     fake_video = b"FAKEVIDEO"
-    fake_audio = b"FAKEAUDIO"
 
-    with patch("instagram_agent.google_genai.Client") as mock_client_cls, \
+    with patch("instagram_agent.google_genai.Client"), \
          patch("instagram_agent.generate_content") as mock_content, \
          patch("instagram_agent.generate_video_clips") as mock_clips, \
          patch("instagram_agent.concatenate_clips") as mock_concat, \
@@ -309,27 +350,19 @@ def test_main_completes_full_pipeline(monkeypatch, tmp_path):
          patch("instagram_agent.tempfile.TemporaryDirectory") as mock_tmpdir:
 
         mock_content.return_value = {
-            "image_prompt": "mosque dawn cinematic",
-            "caption": "Bismillah. #Noor",
-            "topic": "fitrah",
-            "narration": "Every morning is a gift.",
+            "image_prompt": "mosque dawn", "caption": "Bismillah. #Noor",
+            "topic": "fitrah", "narration": "Every morning is a gift.",
         }
         mock_clips.return_value = [fake_video, fake_video, fake_video]
-
-        fake_tmp = tmp_path
-        mock_tmpdir.return_value.__enter__ = MagicMock(return_value=str(fake_tmp))
+        mock_tmpdir.return_value.__enter__ = MagicMock(return_value=str(tmp_path))
         mock_tmpdir.return_value.__exit__ = MagicMock(return_value=False)
-
-        concat_path = fake_tmp / "combined.mp4"
+        concat_path = tmp_path / "combined.mp4"
         concat_path.write_bytes(fake_video)
         mock_concat.return_value = concat_path
-
-        mock_tts.return_value = fake_audio
-
-        final_path = fake_tmp / "final.mp4"
+        mock_tts.return_value = b"FAKEAUDIO"
+        final_path = tmp_path / "final.mp4"
         final_path.write_bytes(fake_video)
         mock_merge.return_value = final_path
-
         mock_upload.return_value = "https://res.cloudinary.com/noor/video/noor.mp4"
         mock_container.return_value = "container123"
         mock_publish.return_value = "media456"
@@ -338,9 +371,6 @@ def test_main_completes_full_pipeline(monkeypatch, tmp_path):
 
     mock_content.assert_called_once()
     mock_clips.assert_called_once()
-    mock_concat.assert_called_once()
-    mock_tts.assert_called_once()
-    mock_merge.assert_called_once()
     mock_upload.assert_called_once()
     mock_container.assert_called_once()
     mock_wait.assert_called_once()

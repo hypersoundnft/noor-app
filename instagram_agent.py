@@ -1,5 +1,6 @@
 """Daily Instagram post agent for the Noor brand."""
 
+import io
 import os
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ import cloudinary.uploader
 from google import genai as google_genai
 from google.genai import types as google_types
 import requests as http_requests
+from PIL import Image
 
 # ── Content Generation ────────────────────────────────────────────────────────
 
@@ -87,7 +89,92 @@ def generate_content(today: date, client: google_genai.Client) -> dict:
     return dict(response.candidates[0].content.parts[0].function_call.args)
 
 
-# ── Video Generation ──────────────────────────────────────────────────────────
+# ── Instagram / Telegram constants ───────────────────────────────────────────
+
+IG_API_BASE = "https://graph.facebook.com/v22.0"
+TELEGRAM_API_BASE = "https://api.telegram.org"
+
+# ── Image Generation (POST_FORMAT=image) ─────────────────────────────────────
+
+def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
+    """Generate a single image using Imagen 4 and return raw JPEG bytes."""
+    response = client.models.generate_images(
+        model="imagen-4.0-generate-001",
+        prompt=image_prompt,
+        config=google_types.GenerateImagesConfig(number_of_images=1),
+    )
+    return response.generated_images[0].image.image_bytes
+
+
+LOGO_MARGIN = 30
+LOGO_MAX_WIDTH = 180
+
+
+def overlay_logo(image_bytes: bytes, logo_path: Path) -> bytes:
+    """Composite the Noor logo into the bottom-right corner. Returns JPEG bytes."""
+    base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    logo = Image.open(logo_path).convert("RGBA")
+
+    ratio = LOGO_MAX_WIDTH / logo.width
+    new_size = (LOGO_MAX_WIDTH, max(1, int(logo.height * ratio)))
+    logo = logo.resize(new_size, Image.LANCZOS)
+
+    x = base.width - new_size[0] - LOGO_MARGIN
+    y = base.height - new_size[1] - LOGO_MARGIN
+
+    composite = base.copy()
+    composite.paste(logo, (x, y), logo)
+
+    out = io.BytesIO()
+    composite.convert("RGB").save(out, format="JPEG", quality=95)
+    return out.getvalue()
+
+
+def upload_image_to_cloudinary(image_bytes: bytes, cloud_name: str, api_key: str, api_secret: str) -> str:
+    """Upload image bytes to Cloudinary and return the public HTTPS URL."""
+    cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret)
+    result = cloudinary.uploader.upload(image_bytes, resource_type="image", format="jpg")
+    return result["secure_url"]
+
+
+def create_ig_image_container(
+    ig_user_id: str, image_url: str, caption: str, access_token: str
+) -> str:
+    """Create an IG media container for a feed image post. Returns container_id."""
+    response = http_requests.post(
+        f"{IG_API_BASE}/{ig_user_id}/media",
+        params={"image_url": image_url, "caption": caption, "access_token": access_token},
+        timeout=30,
+    )
+    if not response.ok:
+        raise RuntimeError(f"IG image container creation failed ({response.status_code}): {response.text}")
+    data = response.json()
+    if "id" not in data:
+        raise RuntimeError(f"IG image container creation failed: {data}")
+    return data["id"]
+
+
+def send_photo_to_telegram(image_bytes: bytes, caption: str, bot_token: str, chat_id: str) -> None:
+    """Send JPEG photo + caption to a Telegram chat via Bot API."""
+    response = http_requests.post(
+        f"{TELEGRAM_API_BASE}/bot{bot_token}/sendPhoto",
+        data={"chat_id": chat_id, "caption": caption[:1024]},
+        files={"photo": ("noor.jpg", image_bytes, "image/jpeg")},
+        timeout=30,
+    )
+    response.raise_for_status()
+    if not response.json().get("ok"):
+        raise RuntimeError(f"Telegram sendPhoto failed: {response.json()}")
+
+    if len(caption) > 1024:
+        http_requests.post(
+            f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage",
+            data={"chat_id": chat_id, "text": caption[1024:]},
+            timeout=30,
+        ).raise_for_status()
+
+
+# ── Video Generation (POST_FORMAT=video) ─────────────────────────────────────
 
 def generate_video_clips(video_prompt: str, client: google_genai.Client, num_clips: int = 3) -> list[bytes]:
     """Generate num_clips short video clips using Veo 2 and return list of MP4 bytes.
@@ -182,8 +269,6 @@ def merge_video_audio(video_path: Path, audio_path: Path, work_dir: Path) -> Pat
 
 # ── Instagram Posting ─────────────────────────────────────────────────────────
 
-IG_API_BASE = "https://graph.facebook.com/v22.0"
-
 
 def upload_to_cloudinary(video_bytes: bytes, cloud_name: str, api_key: str, api_secret: str) -> str:
     """Upload video bytes to Cloudinary and return the public HTTPS URL."""
@@ -266,8 +351,6 @@ def publish_ig_media_container(ig_user_id: str, container_id: str, access_token:
 
 # ── Telegram Delivery ─────────────────────────────────────────────────────────
 
-TELEGRAM_API_BASE = "https://api.telegram.org"
-
 
 def send_to_telegram(video_bytes: bytes, caption: str, bot_token: str, chat_id: str) -> None:
     """Send MP4 video + caption to a Telegram chat via Bot API.
@@ -300,7 +383,10 @@ def send_to_telegram(video_bytes: bytes, caption: str, bot_token: str, chat_id: 
 
 
 def main() -> None:
-    """Run the full Noor video Reel pipeline.
+    """Run the Noor content pipeline in image or video mode.
+
+    Set POST_FORMAT=video to enable the Veo 2 Reels pipeline.
+    Defaults to POST_FORMAT=image (Imagen 4 feed post).
 
     Environment variables required:
       GEMINI_API_KEY,
@@ -309,6 +395,7 @@ def main() -> None:
       TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
     """
     today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+    post_format = os.environ.get("POST_FORMAT", "image").lower()
 
     google_client = google_genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     cloudinary_cloud_name = os.environ["CLOUDINARY_CLOUD_NAME"]
@@ -319,11 +406,50 @@ def main() -> None:
     telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
     telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
-    print(f"[1/7] Generating content for {today_wib}...")
+    print(f"[1] Generating content for {today_wib} (format={post_format})...")
     content = generate_content(today_wib, google_client)
-    print(f"      Topic: {content['topic']}")
-    print(f"      Caption preview: {content['caption'][:60]}...")
+    print(f"    Topic: {content['topic']}")
+    print(f"    Caption preview: {content['caption'][:60]}...")
 
+    if post_format == "video":
+        _run_video_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
+                            cloudinary_api_secret, ig_user_id, ig_access_token,
+                            telegram_token, telegram_chat_id)
+    else:
+        _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
+                            cloudinary_api_secret, ig_user_id, ig_access_token,
+                            telegram_token, telegram_chat_id)
+
+
+def _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
+                        cloudinary_api_secret, ig_user_id, ig_access_token,
+                        telegram_token, telegram_chat_id) -> None:
+    logo_path = Path(__file__).parent / "public" / "noor_logo_white.png"
+
+    print("[2/4] Generating image with Imagen 4...")
+    image_bytes = generate_image(content["image_prompt"], google_client)
+    print(f"      Image: {len(image_bytes):,} bytes")
+
+    print("[3/4] Overlaying Noor logo...")
+    if logo_path.exists():
+        image_bytes = overlay_logo(image_bytes, logo_path)
+        print("      Logo composited.")
+    else:
+        print(f"      Warning: no logo at {logo_path} — skipping overlay")
+
+    print("[4/4] Uploading and posting to Instagram + Telegram...")
+    image_url = upload_image_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
+    print(f"      Uploaded: {image_url}")
+    container_id = create_ig_image_container(ig_user_id, image_url, content["caption"], ig_access_token)
+    media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
+    print(f"      Published! media_id={media_id}")
+    send_photo_to_telegram(image_bytes, content["caption"], telegram_token, telegram_chat_id)
+    print("      Done!")
+
+
+def _run_video_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
+                        cloudinary_api_secret, ig_user_id, ig_access_token,
+                        telegram_token, telegram_chat_id) -> None:
     with tempfile.TemporaryDirectory() as tmp_str:
         work_dir = Path(tmp_str)
 
