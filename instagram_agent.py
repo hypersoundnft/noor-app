@@ -8,6 +8,8 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import cloudinary
+import cloudinary.uploader
 from google import genai as google_genai
 from google.genai import types as google_types
 import requests as http_requests
@@ -185,13 +187,9 @@ IG_API_BASE = "https://graph.facebook.com/v22.0"
 
 def upload_to_cloudinary(video_bytes: bytes, cloud_name: str, api_key: str, api_secret: str) -> str:
     """Upload video bytes to Cloudinary and return the public HTTPS URL."""
-    import cloudinary
-    import cloudinary.uploader
-
     cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret)
     result = cloudinary.uploader.upload(video_bytes, resource_type="video", format="mp4")
     return result["secure_url"]
-
 
 
 def create_ig_reel_container(
