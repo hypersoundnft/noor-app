@@ -342,7 +342,8 @@ def publish_ig_media_container(ig_user_id: str, container_id: str, access_token:
         },
         timeout=30,
     )
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(f"IG publish failed ({response.status_code}): {response.text}")
     data = response.json()
     if "id" not in data:
         raise RuntimeError(f"IG publish failed: {data}")
@@ -441,6 +442,7 @@ def _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinar
     image_url = upload_image_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
     print(f"      Uploaded: {image_url}")
     container_id = create_ig_image_container(ig_user_id, image_url, content["caption"], ig_access_token)
+    time.sleep(5)  # allow container to reach FINISHED state
     media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
     print(f"      Published! media_id={media_id}")
     send_photo_to_telegram(image_bytes, content["caption"], telegram_token, telegram_chat_id)
