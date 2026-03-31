@@ -45,10 +45,11 @@ def fetch_verse_data(surah: int, ayah: int) -> dict:
     }
 
 
-def format_message(verse: dict, slot: int) -> str:
+def format_message(verse: dict, slot: int, hadith=None) -> str:
     """Format a Telegram HTML message for the given verse and prayer slot.
 
     Uses HTML parse_mode so bold markers work without escaping Arabic/Indonesian text.
+    hadith is an optional dict with keys: text, arab, collection_name, number.
     """
     prayer = PRAYER_NAMES[slot]
     lines = [
@@ -64,6 +65,21 @@ def format_message(verse: dict, slot: int) -> str:
         "",
         "💡 <b>Tafsir Al-Jalalain:</b>",
         verse["tafsir"],
+    ]
+    if hadith and hadith.get("text"):
+        lines += [
+            "",
+            "📜 <b>Hadits Pilihan</b>",
+            "",
+        ]
+        if hadith.get("arab"):
+            lines += [hadith["arab"], ""]
+        lines += [
+            hadith["text"],
+            "",
+            f"<i>— Sumber: {hadith['collection_name']}, No. {hadith['number']}</i>",
+        ]
+    lines += [
         "",
         "—",
         f"🌙 Waktu: {prayer}",
@@ -95,10 +111,13 @@ def main() -> None:
     bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
     channel_id = os.environ["TELEGRAM_CHANNEL_ID"]
 
+    from hadith import fetch_hadith
+
     today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
     surah, ayah = get_verse_for_slot(today_wib, args.slot)
     verse = fetch_verse_data(surah, ayah)
-    message = format_message(verse, args.slot)
+    hadith = fetch_hadith("id")
+    message = format_message(verse, args.slot, hadith=hadith)
     send_to_telegram(message, bot_token, channel_id)
 
     print(f"Sent: Surah {surah} Ayah {ayah} ({PRAYER_NAMES[args.slot]})")

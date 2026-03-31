@@ -107,6 +107,41 @@ def test_format_message_contains_required_parts():
     assert PRAYER_NAMES[0] in msg  # "Subuh"
 
 
+def test_format_message_with_hadith():
+    verse = {
+        "arabic": "بِسْمِ اللَّهِ",
+        "translation": "Dengan nama Allah",
+        "tafsir": "Tafsir singkat.",
+        "surah_name": "Al-Fatihah",
+        "surah_number": 1,
+        "ayah_number": 1,
+    }
+    hadith = {
+        "text": "Dari Abu Hurairah...",
+        "arab": "حَدَّثَنَا",
+        "collection_name": "Imam Bukhari",
+        "number": 1,
+    }
+    msg = format_message(verse, slot=0, hadith=hadith)
+    assert "📜 <b>Hadits Pilihan</b>" in msg
+    assert "حَدَّثَنَا" in msg
+    assert "Dari Abu Hurairah" in msg
+    assert "Sumber: Imam Bukhari, No. 1" in msg
+
+
+def test_format_message_no_hadith_skips_block():
+    verse = {
+        "arabic": "بِسْمِ اللَّهِ",
+        "translation": "Dengan nama Allah",
+        "tafsir": "Tafsir singkat.",
+        "surah_name": "Al-Fatihah",
+        "surah_number": 1,
+        "ayah_number": 1,
+    }
+    msg = format_message(verse, slot=0)
+    assert "Hadits" not in msg
+
+
 # ── send_to_telegram ──────────────────────────────────────────────────────────
 
 def test_send_to_telegram_calls_api():
