@@ -28,13 +28,18 @@ Your task:
 function isAllowedOrigin(request: NextRequest): boolean {
   const origin = request.headers.get('origin') ?? '';
   const referer = request.headers.get('referer') ?? '';
+  if (!origin && !referer) return true; // server-side / no-cors same-origin
   const allowed = [
-    'https://noor-website-ten.vercel.app',
+    'https://noor-app-official.vercel.app',
+    // VERCEL_PROJECT_PRODUCTION_URL is the stable project URL (set automatically by Vercel)
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : '',
+    // VERCEL_URL covers preview deployments
     process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
     'http://localhost:3000',
     'http://localhost:3001',
   ].filter(Boolean);
-  if (!origin && !referer) return true; // server-side / no-cors same-origin
   return allowed.some((o) => origin.startsWith(o) || referer.startsWith(o));
 }
 
