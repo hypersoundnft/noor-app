@@ -4,6 +4,7 @@ import io
 import os
 import subprocess
 import tempfile
+import textwrap
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -14,7 +15,7 @@ import cloudinary.uploader
 from google import genai as google_genai
 from google.genai import types as google_types
 import requests as http_requests
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 # ── Content Generation ────────────────────────────────────────────────────────
 
@@ -53,8 +54,16 @@ _POST_TOOL = google_types.Tool(
                         type="STRING",
                         description="60-80 word spoken voiceover script. Warm, calm tone. No hashtags. No markdown. Written to be heard, not read.",
                     ),
+                    "title": google_types.Schema(
+                        type="STRING",
+                        description="Short punchy headline for the image overlay. Max 6 words. Bold, scroll-stopping. No hashtags. Example: 'Gelatin Hides in Your Snacks'.",
+                    ),
+                    "subtitle": google_types.Schema(
+                        type="STRING",
+                        description="One supporting sentence below the title. Max 12 words. Gives context at a glance. Example: 'Carmine & gelatin lurk in everyday products.'",
+                    ),
                 },
-                required=["image_prompt", "caption", "topic", "narration"],
+                required=["image_prompt", "caption", "topic", "narration", "title", "subtitle"],
             ),
         )
     ]
@@ -106,26 +115,96 @@ def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
 
 
 LOGO_MARGIN = 30
-LOGO_MAX_WIDTH = 180
+LOGO_MAX_WIDTH = 140
+
+TOPIC_LABELS = {
+    "fitrah": "✦ Spiritual",
+    "halal_lens": "✦ Halal Lens",
+    "lifestyle": "✦ Lifestyle",
+}
+
+# Brand green from Noor palette
+BRAND_GREEN = (74, 189, 120)
+WHITE = (255, 255, 255)
 
 
-def overlay_logo(image_bytes: bytes, logo_path: Path) -> bytes:
-    """Composite the Noor logo into the bottom-right corner. Returns JPEG bytes."""
+def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """Load a system sans-serif font at the given size."""
+    candidates = (
+        [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/System/Library/Fonts/SFNSDisplay-Bold.otf",
+        ]
+        if bold
+        else [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+    )
+    for path in candidates:
+        if Path(path).exists():
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
+
+def overlay_card(image_bytes: bytes, logo_path: Path, topic: str, title: str, subtitle: str) -> bytes:
+    """Composite a content card onto the image: dark gradient scrim, topic pill,
+    bold title, subtitle, and Noor logo. Returns JPEG bytes."""
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    logo = Image.open(logo_path).convert("RGBA")
+    W, H = base.size
 
-    ratio = LOGO_MAX_WIDTH / logo.width
-    new_size = (LOGO_MAX_WIDTH, max(1, int(logo.height * ratio)))
-    logo = logo.resize(new_size, Image.LANCZOS)
+    # ── Dark gradient scrim (bottom 45% of image) ────────────────────────────
+    scrim_h = int(H * 0.45)
+    scrim = Image.new("RGBA", (W, scrim_h), (0, 0, 0, 0))
+    for y in range(scrim_h):
+        alpha = int(210 * (y / scrim_h) ** 0.6)
+        for x in range(W):
+            scrim.putpixel((x, y), (0, 0, 0, alpha))
+    base.paste(scrim, (0, H - scrim_h), scrim)
 
-    x = base.width - new_size[0] - LOGO_MARGIN
-    y = base.height - new_size[1] - LOGO_MARGIN
+    draw = ImageDraw.Draw(base)
+    pad = int(W * 0.06)  # 6% horizontal padding
 
-    composite = base.copy()
-    composite.paste(logo, (x, y), logo)
+    # ── Topic pill ───────────────────────────────────────────────────────────
+    label = TOPIC_LABELS.get(topic, f"✦ {topic.capitalize()}")
+    pill_font = _load_font(int(W * 0.038))
+    pill_bbox = draw.textbbox((0, 0), label, font=pill_font)
+    pill_w = pill_bbox[2] - pill_bbox[0] + 28
+    pill_h = pill_bbox[3] - pill_bbox[1] + 14
+    pill_y = H - scrim_h + int(scrim_h * 0.08)
+    pill_rect = [pad, pill_y, pad + pill_w, pill_y + pill_h]
+    draw.rounded_rectangle(pill_rect, radius=pill_h // 2, fill=(*BRAND_GREEN, 230))
+    draw.text((pad + 14, pill_y + 7), label, font=pill_font, fill=WHITE)
+
+    # ── Title (bold, large, word-wrapped) ────────────────────────────────────
+    title_font = _load_font(int(W * 0.092), bold=True)
+    max_chars = int(W / (W * 0.092 * 0.55))
+    wrapped = textwrap.fill(title.upper(), width=max(8, max_chars))
+    title_y = pill_y + pill_h + int(H * 0.018)
+    draw.text((pad, title_y), wrapped, font=title_font, fill=WHITE,
+              stroke_width=2, stroke_fill=(0, 0, 0, 120))
+
+    # ── Subtitle ─────────────────────────────────────────────────────────────
+    sub_font = _load_font(int(W * 0.048))
+    title_bbox = draw.multiline_textbbox((pad, title_y), wrapped, font=title_font)
+    sub_y = title_bbox[3] + int(H * 0.012)
+    sub_wrapped = textwrap.fill(subtitle, width=int(max_chars * 1.5))
+    draw.text((pad, sub_y), sub_wrapped, font=sub_font, fill=(220, 220, 220, 255))
+
+    # ── Noor logo (bottom-right) ──────────────────────────────────────────────
+    if logo_path.exists():
+        logo = Image.open(logo_path).convert("RGBA")
+        ratio = LOGO_MAX_WIDTH / logo.width
+        logo = logo.resize((LOGO_MAX_WIDTH, max(1, int(logo.height * ratio))), Image.LANCZOS)
+        lx = W - logo.width - LOGO_MARGIN
+        ly = H - logo.height - LOGO_MARGIN
+        base.paste(logo, (lx, ly), logo)
 
     out = io.BytesIO()
-    composite.convert("RGB").save(out, format="JPEG", quality=95)
+    base.convert("RGB").save(out, format="JPEG", quality=95)
     return out.getvalue()
 
 
@@ -374,12 +453,14 @@ def _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinar
     image_bytes = generate_image(content["image_prompt"], google_client)
     print(f"      Image: {len(image_bytes):,} bytes")
 
-    print("[3/4] Overlaying Noor logo...")
-    if logo_path.exists():
-        image_bytes = overlay_logo(image_bytes, logo_path)
-        print("      Logo composited.")
-    else:
-        print(f"      Warning: no logo at {logo_path} — skipping overlay")
+    print("[3/4] Compositing content card...")
+    image_bytes = overlay_card(
+        image_bytes, logo_path,
+        topic=content["topic"],
+        title=content["title"],
+        subtitle=content["subtitle"],
+    )
+    print("      Card composited.")
 
     print("[4/4] Uploading and posting to Instagram...")
     image_url = upload_image_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
