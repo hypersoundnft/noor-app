@@ -40,7 +40,7 @@ _POST_TOOL = google_types.Tool(
                 properties={
                     "image_prompt": google_types.Schema(
                         type="STRING",
-                        description="Highly detailed cinematic video generation prompt. Style: golden hour or soft natural light, 9:16 portrait, photorealistic, ultra-detailed. Subject evokes the topic. Modern Islamic aesthetic. No Arabic text or calligraphy.",
+                        description="Highly detailed cinematic image prompt. Style: golden hour or soft natural light, 4:5 portrait orientation, photorealistic, ultra-detailed. Keep the main subject in the upper 55% of the frame — the bottom 45% will have a text overlay. Modern Islamic aesthetic. No Arabic text or calligraphy in the image.",
                     ),
                     "caption": google_types.Schema(
                         type="STRING",
@@ -114,8 +114,11 @@ def generate_image(image_prompt: str, client: google_genai.Client) -> bytes:
     return response.generated_images[0].image.image_bytes
 
 
-LOGO_MARGIN = 30
-LOGO_MAX_WIDTH = 140
+# Canvas: 1080×1350 (4:5 Instagram portrait)
+CANVAS_W = 1080
+CANVAS_H = 1350
+# Safe zone: 60px inset on all sides (Instagram UI won't clip content here)
+SAFE = 60
 
 TOPIC_LABELS = {
     "fitrah": "✦ Spiritual",
@@ -123,7 +126,6 @@ TOPIC_LABELS = {
     "lifestyle": "✦ Lifestyle",
 }
 
-# Brand green from Noor palette
 BRAND_GREEN = (74, 189, 120)
 WHITE = (255, 255, 255)
 
@@ -150,57 +152,114 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def overlay_card(image_bytes: bytes, logo_path: Path, topic: str, title: str, subtitle: str) -> bytes:
-    """Composite a content card onto the image: dark gradient scrim, topic pill,
-    bold title, subtitle, and Noor logo. Returns JPEG bytes."""
-    base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    W, H = base.size
+def _crop_to_canvas(img: Image.Image) -> Image.Image:
+    """Center-crop image to CANVAS_W × CANVAS_H."""
+    img = img.convert("RGBA")
+    src_w, src_h = img.size
+    scale = max(CANVAS_W / src_w, CANVAS_H / src_h)
+    new_w, new_h = int(src_w * scale), int(src_h * scale)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    left = (new_w - CANVAS_W) // 2
+    top = (new_h - CANVAS_H) // 2
+    return img.crop((left, top, left + CANVAS_W, top + CANVAS_H))
 
-    # ── Dark gradient scrim (bottom 45% of image) ────────────────────────────
-    scrim_h = int(H * 0.45)
+
+def overlay_card(image_bytes: bytes, logo_path: Path, topic: str, title: str, subtitle: str) -> bytes:
+    """Crop to 4:5 canvas, add dark gradient scrim, topic pill, bold title,
+    subtitle (all within safe zone), and Noor logo. Returns JPEG bytes."""
+    base = _crop_to_canvas(Image.open(io.BytesIO(image_bytes)))
+    W, H = base.size  # always CANVAS_W × CANVAS_H
+
+    # ── Dark gradient scrim (bottom 50%) ─────────────────────────────────────
+    scrim_h = H // 2
     scrim = Image.new("RGBA", (W, scrim_h), (0, 0, 0, 0))
+    pixels = scrim.load()
     for y in range(scrim_h):
-        alpha = int(210 * (y / scrim_h) ** 0.6)
+        alpha = int(220 * (y / scrim_h) ** 0.5)
         for x in range(W):
-            scrim.putpixel((x, y), (0, 0, 0, alpha))
+            pixels[x, y] = (0, 0, 0, alpha)
     base.paste(scrim, (0, H - scrim_h), scrim)
 
     draw = ImageDraw.Draw(base)
-    pad = int(W * 0.06)  # 6% horizontal padding
+
+    # Safe-zone left edge and bottom anchor
+    sx = SAFE          # left safe boundary
+    sy_bottom = H - SAFE  # bottom safe boundary
+
+    # ── Sizes relative to canvas (fixed px for consistency) ──────────────────
+    PILL_FONT_SIZE  = 36   # ~3.3% of 1080
+    TITLE_FONT_SIZE = 88   # ~8.1% of 1080
+    SUB_FONT_SIZE   = 42   # ~3.9% of 1080
+    LOGO_W          = 130
+    TEXT_W          = W - SAFE * 2  # max text width within safe zone
+
+    pill_font  = _load_font(PILL_FONT_SIZE)
+    title_font = _load_font(TITLE_FONT_SIZE, bold=True)
+    sub_font   = _load_font(SUB_FONT_SIZE)
+
+    # ── Pre-wrap text so we can measure total block height ───────────────────
+    def wrap_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
+        words = text.split()
+        lines, line = [], ""
+        for word in words:
+            test = (line + " " + word).strip()
+            if draw.textlength(test, font=font) <= max_w:
+                line = test
+            else:
+                if line:
+                    lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
+        return "\n".join(lines)
+
+    label       = TOPIC_LABELS.get(topic, f"✦ {topic.capitalize()}")
+    title_text  = wrap_to_width(title.upper(), title_font, TEXT_W)
+    sub_text    = wrap_to_width(subtitle, sub_font, TEXT_W)
+
+    # Measure block heights
+    pill_bbox   = draw.textbbox((0, 0), label, font=pill_font)
+    pill_h      = pill_bbox[3] - pill_bbox[1] + 16
+    title_bbox  = draw.multiline_textbbox((0, 0), title_text, font=title_font, spacing=8)
+    title_h     = title_bbox[3] - title_bbox[1]
+    sub_bbox    = draw.multiline_textbbox((0, 0), sub_text, font=sub_font, spacing=6)
+    sub_h       = sub_bbox[3] - sub_bbox[1]
+
+    GAP_PILL_TITLE = 18
+    GAP_TITLE_SUB  = 14
+
+    total_h = pill_h + GAP_PILL_TITLE + title_h + GAP_TITLE_SUB + sub_h
+
+    # Anchor block so its bottom aligns with safe bottom minus logo row
+    LOGO_ROW_H = LOGO_W // 3 + 20   # rough logo height + gap
+    block_bottom = sy_bottom - LOGO_ROW_H
+    block_top    = block_bottom - total_h
 
     # ── Topic pill ───────────────────────────────────────────────────────────
-    label = TOPIC_LABELS.get(topic, f"✦ {topic.capitalize()}")
-    pill_font = _load_font(int(W * 0.038))
-    pill_bbox = draw.textbbox((0, 0), label, font=pill_font)
-    pill_w = pill_bbox[2] - pill_bbox[0] + 28
-    pill_h = pill_bbox[3] - pill_bbox[1] + 14
-    pill_y = H - scrim_h + int(scrim_h * 0.08)
-    pill_rect = [pad, pill_y, pad + pill_w, pill_y + pill_h]
-    draw.rounded_rectangle(pill_rect, radius=pill_h // 2, fill=(*BRAND_GREEN, 230))
-    draw.text((pad + 14, pill_y + 7), label, font=pill_font, fill=WHITE)
+    pill_bbox2  = draw.textbbox((0, 0), label, font=pill_font)
+    pill_w      = pill_bbox2[2] - pill_bbox2[0] + 32
+    pill_rect   = [sx, block_top, sx + pill_w, block_top + pill_h]
+    draw.rounded_rectangle(pill_rect, radius=pill_h // 2, fill=(*BRAND_GREEN, 240))
+    draw.text((sx + 16, block_top + 8), label, font=pill_font, fill=WHITE)
 
-    # ── Title (bold, large, word-wrapped) ────────────────────────────────────
-    title_font = _load_font(int(W * 0.092), bold=True)
-    max_chars = int(W / (W * 0.092 * 0.55))
-    wrapped = textwrap.fill(title.upper(), width=max(8, max_chars))
-    title_y = pill_y + pill_h + int(H * 0.018)
-    draw.text((pad, title_y), wrapped, font=title_font, fill=WHITE,
-              stroke_width=2, stroke_fill=(0, 0, 0, 120))
+    # ── Title ────────────────────────────────────────────────────────────────
+    ty = block_top + pill_h + GAP_PILL_TITLE
+    draw.multiline_text((sx, ty), title_text, font=title_font, fill=WHITE,
+                        spacing=8, stroke_width=3, stroke_fill=(0, 0, 0, 140))
 
     # ── Subtitle ─────────────────────────────────────────────────────────────
-    sub_font = _load_font(int(W * 0.048))
-    title_bbox = draw.multiline_textbbox((pad, title_y), wrapped, font=title_font)
-    sub_y = title_bbox[3] + int(H * 0.012)
-    sub_wrapped = textwrap.fill(subtitle, width=int(max_chars * 1.5))
-    draw.text((pad, sub_y), sub_wrapped, font=sub_font, fill=(220, 220, 220, 255))
+    sub_y = ty + title_h + GAP_TITLE_SUB
+    draw.multiline_text((sx, sub_y), sub_text, font=sub_font,
+                        fill=(210, 210, 210, 255), spacing=6)
 
-    # ── Noor logo (bottom-right) ──────────────────────────────────────────────
+    # ── Noor logo (bottom-right, within safe zone) ────────────────────────────
     if logo_path.exists():
         logo = Image.open(logo_path).convert("RGBA")
-        ratio = LOGO_MAX_WIDTH / logo.width
-        logo = logo.resize((LOGO_MAX_WIDTH, max(1, int(logo.height * ratio))), Image.LANCZOS)
-        lx = W - logo.width - LOGO_MARGIN
-        ly = H - logo.height - LOGO_MARGIN
+        ratio = LOGO_W / logo.width
+        logo_h = max(1, int(logo.height * ratio))
+        logo = logo.resize((LOGO_W, logo_h), Image.LANCZOS)
+        lx = W - SAFE - LOGO_W
+        ly = H - SAFE - logo_h
         base.paste(logo, (lx, ly), logo)
 
     out = io.BytesIO()
