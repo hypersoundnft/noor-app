@@ -4,7 +4,6 @@ import io
 import os
 import subprocess
 import tempfile
-import textwrap
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -166,44 +165,34 @@ def _crop_to_canvas(img: Image.Image) -> Image.Image:
 
 def overlay_card(image_bytes: bytes, logo_path: Path, topic: str, title: str, subtitle: str) -> bytes:
     """Crop to 4:5 canvas, add dark gradient scrim, topic pill, bold title,
-    subtitle (all within safe zone), and Noor logo. Returns JPEG bytes."""
+    subtitle (all within safe zone), and Noor logo. Returns JPEG bytes.
+
+    Layout is built bottom-up to guarantee no overlap:
+      sy_bottom → logo → subtitle → title → pill
+    """
     base = _crop_to_canvas(Image.open(io.BytesIO(image_bytes)))
     W, H = base.size  # always CANVAS_W × CANVAS_H
 
-    # ── Dark gradient scrim (bottom 50%) ─────────────────────────────────────
-    scrim_h = H // 2
-    scrim = Image.new("RGBA", (W, scrim_h), (0, 0, 0, 0))
-    pixels = scrim.load()
-    for y in range(scrim_h):
-        alpha = int(220 * (y / scrim_h) ** 0.5)
-        for x in range(W):
-            pixels[x, y] = (0, 0, 0, alpha)
-    base.paste(scrim, (0, H - scrim_h), scrim)
-
-    draw = ImageDraw.Draw(base)
-
-    # Safe-zone left edge and bottom anchor
-    sx = SAFE          # left safe boundary
-    sy_bottom = H - SAFE  # bottom safe boundary
-
-    # ── Sizes relative to canvas (fixed px for consistency) ──────────────────
-    PILL_FONT_SIZE  = 36   # ~3.3% of 1080
-    TITLE_FONT_SIZE = 88   # ~8.1% of 1080
-    SUB_FONT_SIZE   = 42   # ~3.9% of 1080
-    LOGO_W          = 130
-    TEXT_W          = W - SAFE * 2  # max text width within safe zone
+    PILL_FONT_SIZE  = 40
+    TITLE_FONT_SIZE = 82
+    SUB_FONT_SIZE   = 40
+    LOGO_W          = 120
+    TEXT_W          = W - SAFE * 2
+    GAP             = 20   # uniform gap between layers
 
     pill_font  = _load_font(PILL_FONT_SIZE)
     title_font = _load_font(TITLE_FONT_SIZE, bold=True)
     sub_font   = _load_font(SUB_FONT_SIZE)
 
-    # ── Pre-wrap text so we can measure total block height ───────────────────
+    # ── Word-wrap helper ──────────────────────────────────────────────────────
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+
     def wrap_to_width(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> str:
         words = text.split()
         lines, line = [], ""
         for word in words:
             test = (line + " " + word).strip()
-            if draw.textlength(test, font=font) <= max_w:
+            if dummy.textlength(test, font=font) <= max_w:
                 line = test
             else:
                 if line:
@@ -213,54 +202,79 @@ def overlay_card(image_bytes: bytes, logo_path: Path, topic: str, title: str, su
             lines.append(line)
         return "\n".join(lines)
 
-    label       = TOPIC_LABELS.get(topic, f"✦ {topic.capitalize()}")
-    title_text  = wrap_to_width(title.upper(), title_font, TEXT_W)
-    sub_text    = wrap_to_width(subtitle, sub_font, TEXT_W)
+    label      = TOPIC_LABELS.get(topic, f"✦ {topic.capitalize()}")
+    title_text = wrap_to_width(title.upper(), title_font, TEXT_W)
+    sub_text   = wrap_to_width(subtitle, sub_font, TEXT_W)
 
-    # Measure block heights
-    pill_bbox   = draw.textbbox((0, 0), label, font=pill_font)
-    pill_h      = pill_bbox[3] - pill_bbox[1] + 16
-    title_bbox  = draw.multiline_textbbox((0, 0), title_text, font=title_font, spacing=8)
-    title_h     = title_bbox[3] - title_bbox[1]
-    sub_bbox    = draw.multiline_textbbox((0, 0), sub_text, font=sub_font, spacing=6)
-    sub_h       = sub_bbox[3] - sub_bbox[1]
+    # ── Measure each element height precisely ────────────────────────────────
+    def text_h(text: str, font: ImageFont.FreeTypeFont, spacing: int = 6) -> int:
+        bb = dummy.multiline_textbbox((0, 0), text, font=font, spacing=spacing)
+        return bb[3] - bb[1]
 
-    GAP_PILL_TITLE = 18
-    GAP_TITLE_SUB  = 14
+    def text_w_single(text: str, font: ImageFont.FreeTypeFont) -> int:
+        bb = dummy.textbbox((0, 0), text, font=font)
+        return bb[2] - bb[0]
 
-    total_h = pill_h + GAP_PILL_TITLE + title_h + GAP_TITLE_SUB + sub_h
+    logo_img = None
+    logo_h_px = 0
+    if logo_path.exists():
+        logo_img = Image.open(logo_path).convert("RGBA")
+        ratio = LOGO_W / logo_img.width
+        logo_h_px = max(1, int(logo_img.height * ratio))
+        logo_img = logo_img.resize((LOGO_W, logo_h_px), Image.LANCZOS)
 
-    # Anchor block so its bottom aligns with safe bottom minus logo row
-    LOGO_ROW_H = LOGO_W // 3 + 20   # rough logo height + gap
-    block_bottom = sy_bottom - LOGO_ROW_H
-    block_top    = block_bottom - total_h
+    pill_text_h = text_h(label, pill_font)
+    pill_h      = pill_text_h + 24   # vertical padding inside pill
+    title_height = text_h(title_text, title_font, spacing=8)
+    sub_height   = text_h(sub_text, sub_font, spacing=6)
+
+    # ── Bottom-up Y positions ─────────────────────────────────────────────────
+    # Start from bottom safe edge, stack upward
+    cursor = H - SAFE
+
+    logo_y   = cursor - logo_h_px
+    cursor   = logo_y - GAP
+
+    sub_y    = cursor - sub_height
+    cursor   = sub_y - GAP
+
+    title_y  = cursor - title_height
+    cursor   = title_y - GAP
+
+    pill_y   = cursor - pill_h
+
+    # ── Scrim: covers from pill_y - some breathing room to bottom ────────────
+    scrim_top = pill_y - 60
+    scrim_h   = H - scrim_top
+    scrim = Image.new("RGBA", (W, scrim_h), (0, 0, 0, 0))
+    pixels = scrim.load()
+    for y in range(scrim_h):
+        alpha = int(215 * (y / scrim_h) ** 0.45)
+        for x in range(W):
+            pixels[x, y] = (0, 0, 0, alpha)
+    base.paste(scrim, (0, scrim_top), scrim)
+
+    draw = ImageDraw.Draw(base)
+    sx = SAFE
 
     # ── Topic pill ───────────────────────────────────────────────────────────
-    pill_bbox2  = draw.textbbox((0, 0), label, font=pill_font)
-    pill_w      = pill_bbox2[2] - pill_bbox2[0] + 32
-    pill_rect   = [sx, block_top, sx + pill_w, block_top + pill_h]
-    draw.rounded_rectangle(pill_rect, radius=pill_h // 2, fill=(*BRAND_GREEN, 240))
-    draw.text((sx + 16, block_top + 8), label, font=pill_font, fill=WHITE)
+    pw = text_w_single(label, pill_font) + 48   # generous horizontal padding
+    draw.rounded_rectangle([sx, pill_y, sx + pw, pill_y + pill_h],
+                            radius=pill_h // 2, fill=(*BRAND_GREEN, 245))
+    draw.text((sx + 24, pill_y + 12), label, font=pill_font, fill=WHITE)
 
     # ── Title ────────────────────────────────────────────────────────────────
-    ty = block_top + pill_h + GAP_PILL_TITLE
-    draw.multiline_text((sx, ty), title_text, font=title_font, fill=WHITE,
-                        spacing=8, stroke_width=3, stroke_fill=(0, 0, 0, 140))
+    draw.multiline_text((sx, title_y), title_text, font=title_font, fill=WHITE,
+                        spacing=8, stroke_width=3, stroke_fill=(0, 0, 0, 160))
 
     # ── Subtitle ─────────────────────────────────────────────────────────────
-    sub_y = ty + title_h + GAP_TITLE_SUB
     draw.multiline_text((sx, sub_y), sub_text, font=sub_font,
-                        fill=(210, 210, 210, 255), spacing=6)
+                        fill=(205, 205, 205, 255), spacing=6)
 
-    # ── Noor logo (bottom-right, within safe zone) ────────────────────────────
-    if logo_path.exists():
-        logo = Image.open(logo_path).convert("RGBA")
-        ratio = LOGO_W / logo.width
-        logo_h = max(1, int(logo.height * ratio))
-        logo = logo.resize((LOGO_W, logo_h), Image.LANCZOS)
+    # ── Logo (bottom-right, within safe zone) ─────────────────────────────────
+    if logo_img is not None:
         lx = W - SAFE - LOGO_W
-        ly = H - SAFE - logo_h
-        base.paste(logo, (lx, ly), logo)
+        base.paste(logo_img, (lx, logo_y), logo_img)
 
     out = io.BytesIO()
     base.convert("RGB").save(out, format="JPEG", quality=95)
