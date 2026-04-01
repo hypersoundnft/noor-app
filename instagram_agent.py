@@ -89,10 +89,9 @@ def generate_content(today: date, client: google_genai.Client) -> dict:
     return dict(response.candidates[0].content.parts[0].function_call.args)
 
 
-# ── Instagram / Telegram constants ───────────────────────────────────────────
+# ── Instagram constants ───────────────────────────────────────────────────────
 
 IG_API_BASE = "https://graph.facebook.com/v22.0"
-TELEGRAM_API_BASE = "https://api.telegram.org"
 
 # ── Image Generation (POST_FORMAT=image) ─────────────────────────────────────
 
@@ -152,26 +151,6 @@ def create_ig_image_container(
     if "id" not in data:
         raise RuntimeError(f"IG image container creation failed: {data}")
     return data["id"]
-
-
-def send_photo_to_telegram(image_bytes: bytes, caption: str, bot_token: str, chat_id: str) -> None:
-    """Send JPEG photo + caption to a Telegram chat via Bot API."""
-    response = http_requests.post(
-        f"{TELEGRAM_API_BASE}/bot{bot_token}/sendPhoto",
-        data={"chat_id": chat_id, "caption": caption[:1024]},
-        files={"photo": ("noor.jpg", image_bytes, "image/jpeg")},
-        timeout=30,
-    )
-    response.raise_for_status()
-    if not response.json().get("ok"):
-        raise RuntimeError(f"Telegram sendPhoto failed: {response.json()}")
-
-    if len(caption) > 1024:
-        http_requests.post(
-            f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage",
-            data={"chat_id": chat_id, "text": caption[1024:]},
-            timeout=30,
-        ).raise_for_status()
 
 
 # ── Video Generation (POST_FORMAT=video) ─────────────────────────────────────
@@ -350,36 +329,6 @@ def publish_ig_media_container(ig_user_id: str, container_id: str, access_token:
     return data["id"]
 
 
-# ── Telegram Delivery ─────────────────────────────────────────────────────────
-
-
-def send_to_telegram(video_bytes: bytes, caption: str, bot_token: str, chat_id: str) -> None:
-    """Send MP4 video + caption to a Telegram chat via Bot API.
-
-    Sends the video with caption (truncated to 1024 chars).
-    If caption exceeds 1024 chars, sends remainder as a follow-up message.
-    """
-    video_url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendVideo"
-    response = http_requests.post(
-        video_url,
-        data={"chat_id": chat_id, "caption": caption[:1024]},
-        files={"video": ("noor.mp4", video_bytes, "video/mp4")},
-        timeout=60,
-    )
-    response.raise_for_status()
-    if not response.json().get("ok"):
-        raise RuntimeError(f"Telegram sendVideo failed: {response.json()}")
-
-    if len(caption) > 1024:
-        msg_url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage"
-        response = http_requests.post(
-            msg_url,
-            data={"chat_id": chat_id, "text": caption[1024:]},
-            timeout=30,
-        )
-        response.raise_for_status()
-
-
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 
@@ -392,8 +341,7 @@ def main() -> None:
     Environment variables required:
       GEMINI_API_KEY,
       CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET,
-      IG_USER_ID, IG_ACCESS_TOKEN,
-      TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+      IG_USER_ID, IG_ACCESS_TOKEN
     """
     today_wib = datetime.now(ZoneInfo("Asia/Jakarta")).date()
     post_format = os.environ.get("POST_FORMAT", "image").lower()
@@ -404,8 +352,6 @@ def main() -> None:
     cloudinary_api_secret = os.environ["CLOUDINARY_API_SECRET"]
     ig_user_id = os.environ["IG_USER_ID"]
     ig_access_token = os.environ["IG_ACCESS_TOKEN"]
-    telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
-    telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
     print(f"[1] Generating content for {today_wib} (format={post_format})...")
     content = generate_content(today_wib, google_client)
@@ -414,17 +360,14 @@ def main() -> None:
 
     if post_format == "video":
         _run_video_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
-                            cloudinary_api_secret, ig_user_id, ig_access_token,
-                            telegram_token, telegram_chat_id)
+                            cloudinary_api_secret, ig_user_id, ig_access_token)
     else:
         _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
-                            cloudinary_api_secret, ig_user_id, ig_access_token,
-                            telegram_token, telegram_chat_id)
+                            cloudinary_api_secret, ig_user_id, ig_access_token)
 
 
 def _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
-                        cloudinary_api_secret, ig_user_id, ig_access_token,
-                        telegram_token, telegram_chat_id) -> None:
+                        cloudinary_api_secret, ig_user_id, ig_access_token) -> None:
     logo_path = Path(__file__).parent / "public" / "noor_logo_white.png"
 
     print("[2/4] Generating image with Imagen 4...")
@@ -438,20 +381,17 @@ def _run_image_pipeline(content, google_client, cloudinary_cloud_name, cloudinar
     else:
         print(f"      Warning: no logo at {logo_path} — skipping overlay")
 
-    print("[4/4] Uploading and posting to Instagram + Telegram...")
+    print("[4/4] Uploading and posting to Instagram...")
     image_url = upload_image_to_cloudinary(image_bytes, cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret)
     print(f"      Uploaded: {image_url}")
     container_id = create_ig_image_container(ig_user_id, image_url, content["caption"], ig_access_token)
     time.sleep(5)  # allow container to reach FINISHED state
     media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
     print(f"      Published! media_id={media_id}")
-    send_photo_to_telegram(image_bytes, content["caption"], telegram_token, telegram_chat_id)
-    print("      Done!")
 
 
 def _run_video_pipeline(content, google_client, cloudinary_cloud_name, cloudinary_api_key,
-                        cloudinary_api_secret, ig_user_id, ig_access_token,
-                        telegram_token, telegram_chat_id) -> None:
+                        cloudinary_api_secret, ig_user_id, ig_access_token) -> None:
     with tempfile.TemporaryDirectory() as tmp_str:
         work_dir = Path(tmp_str)
 
@@ -487,10 +427,6 @@ def _run_video_pipeline(content, google_client, cloudinary_cloud_name, cloudinar
         wait_for_ig_container(container_id, ig_access_token)
         media_id = publish_ig_media_container(ig_user_id, container_id, ig_access_token)
         print(f"      Published! media_id={media_id}")
-
-        print("[7/7] Sending to Telegram...")
-        send_to_telegram(video_bytes, content["caption"], telegram_token, telegram_chat_id)
-        print("      Done!")
 
 
 if __name__ == "__main__":
