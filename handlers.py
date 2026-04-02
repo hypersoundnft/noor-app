@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 import db
 from prayer_times import geocode_city, get_prayer_times, language_for_country
 from quran_index import verse_index_to_surah_ayah
-from send_tafsir import fetch_verse_data, format_message
+from verse_service import fetch_verse_data, format_message
 from scheduler import add_user_jobs, remove_user_jobs, PRAYER_NAMES
 
 logger = logging.getLogger(__name__)

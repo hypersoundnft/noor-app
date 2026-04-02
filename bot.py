@@ -31,8 +31,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def post_init(application: Application) -> None:
+    """Start scheduler and recover jobs inside the asyncio event loop."""
+    db.init_db()
+    logger.info("Database initialised.")
+    sched.scheduler.start()
+    active_users = db.get_all_active_users()
+    logger.info("Recovering jobs for %d active user(s).", len(active_users))
+    for user in active_users:
+        sched.load_user_jobs(application.bot, user, db)
+    logger.info("Scheduler started with %d user(s) recovered.", len(active_users))
+
+
 def build_application(token: str):
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(post_init).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -61,23 +73,7 @@ def build_application(token: str):
 
 def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-
-    db.init_db()
-    logger.info("Database initialised.")
-
-    sched.scheduler.start()
-    sched.scheduler.pause()  # pause during recovery
-    logger.info("Scheduler started (paused for recovery).")
-
     app = build_application(token)
-
-    active_users = db.get_all_active_users()
-    logger.info("Recovering jobs for %d active user(s).", len(active_users))
-    for user in active_users:
-        sched.load_user_jobs(app.bot, user, db)
-
-    sched.scheduler.resume()  # resume after all jobs are loaded
-    logger.info("Scheduler resumed.")
     logger.info("Bot starting.")
     app.run_polling()
 
