@@ -1,9 +1,10 @@
 name: Noor Instagram Daily Post
 
 on:
-  schedule:
-    - cron: "0 3 * * *"  # 10:00 AM WIB (UTC+7 → UTC 03:00)
-  workflow_dispatch:       # allow manual trigger from GitHub UI
+  # DISABLED — shutdown 2026-05-04
+  # schedule:
+  #   - cron: "0 3 * * *"  # 10:00 AM WIB (UTC+7 → UTC 03:00)
+  # workflow_dispatch:       # allow manual trigger from GitHub UI
 
 jobs:
   post:
